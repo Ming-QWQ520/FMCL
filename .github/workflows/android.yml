@@ -17,7 +17,7 @@ jobs:
   build:
     name: Build APK (universal)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       # 与开发环境一致的 Flutter / pub 国内镜像
       FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
@@ -38,12 +38,25 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
-      - name: Set up Flutter 3.47.5
-        uses: subosito/flutter-action@v2
+      # 直接使用 flutter-io.cn 镜像的官方 release 包（确定性安装，
+      # 避免 action 版本解析回退 git clone）
+      - name: Cache Flutter SDK
+        uses: actions/cache@v4
         with:
-          flutter-version: 3.47.5
-          channel: stable
-          cache: true
+          path: /opt/flutter
+          key: flutter-3.47.5-stable-linux
+
+      - name: Set up Flutter 3.47.5 (flutter-io.cn)
+        run: |
+          if [ ! -x /opt/flutter/bin/flutter ]; then
+            curl -sL --retry 5 -o /tmp/flutter.tar.xz \
+              "https://storage.flutter-io.cn/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.5-stable.tar.xz"
+            sudo rm -rf /opt/flutter
+            sudo tar -xJf /tmp/flutter.tar.xz -C /opt
+            rm -f /tmp/flutter.tar.xz
+          fi
+          /opt/flutter/bin/flutter --version
+          echo "/opt/flutter/bin" >> "$GITHUB_PATH"
 
       - name: Pub get
         run: flutter pub get

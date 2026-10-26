@@ -17,7 +17,7 @@ jobs:
   build:
     name: Build Windows x64
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       # 与开发环境一致的 Flutter / pub 国内镜像
       FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
@@ -31,12 +31,26 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Set up Flutter 3.47.5
-        uses: subosito/flutter-action@v2
+      # 直接使用 flutter-io.cn 镜像的官方 release 包（确定性安装，
+      # 避免 action 版本解析回退 git clone）
+      - name: Cache Flutter SDK
+        uses: actions/cache@v4
         with:
-          flutter-version: 3.47.5
-          channel: stable
-          cache: true
+          path: C:\flutter
+          key: flutter-3.47.5-stable-windows
+
+      - name: Set up Flutter 3.47.5 (flutter-io.cn)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "C:\flutter\bin\flutter.bat")) {
+            curl.exe -sL --retry 5 -o "$env:RUNNER_TEMP\flutter.zip" `
+              "https://storage.flutter-io.cn/flutter_infra_release/releases/stable/windows/flutter_windows_3.47.5-stable.zip"
+            if (Test-Path "C:\flutter") { Remove-Item -Recurse -Force "C:\flutter" }
+            Expand-Archive -Path "$env:RUNNER_TEMP\flutter.zip" -DestinationPath "C:\" -Force
+            Remove-Item "$env:RUNNER_TEMP\flutter.zip"
+          }
+          & "C:\flutter\bin\flutter.bat" --version
+          Add-Content $env:GITHUB_PATH "C:\flutter\bin"
 
       - name: Pub get
         run: flutter pub get
