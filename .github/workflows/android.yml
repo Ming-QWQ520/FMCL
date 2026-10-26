@@ -6,8 +6,6 @@ name: Android Build
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 concurrency:
   group: android-${{ github.ref }}
@@ -18,10 +16,6 @@ jobs:
     name: Build APK (universal)
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    env:
-      # 与开发环境一致的 Flutter / pub 国内镜像
-      FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
-      PUB_HOSTED_URL: https://pub.flutter-io.cn
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,29 +32,22 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
-      # 直接使用 flutter-io.cn 镜像的官方 release 包（确定性安装，
-      # 避免 action 版本解析回退 git clone）
+      # 直接从 Google 官方发布站下载（runner 位于海外，直连官方源快且稳定）
       - name: Cache Flutter SDK
         uses: actions/cache@v4
         with:
           path: ~/flutter
-          key: flutter-3.47.5-stable-linux-v2
+          key: flutter-3.47.5-stable-linux-v3
 
       - name: Set up Flutter 3.47.5
         run: |
           if [ ! -x "$HOME/flutter/bin/flutter" ]; then
-            # 主源 googleapis（GH runner 快），备用 flutter-io.cn
-            URLS=(
-              "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.5-stable.tar.xz"
-              "https://storage.flutter-io.cn/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.5-stable.tar.xz"
-            )
-            for u in "${URLS[@]}"; do
-              echo "尝试下载: $u"
-              curl -sL --retry 5 --retry-all-errors --connect-timeout 30 -o /tmp/flutter.tar.xz "$u" && \
-                [ "$(stat -c%s /tmp/flutter.tar.xz)" -gt 1000000000 ] && break
-              rm -f /tmp/flutter.tar.xz
-            done
-            [ -s /tmp/flutter.tar.xz ] || { echo "Flutter SDK 下载失败"; exit 1; }
+            # 官方发布站（storage.googleapis.com），带重试与总超时，避免卡死
+            URL="https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.5-stable.tar.xz"
+            echo "从官方站下载: $URL"
+            curl -fL --retry 5 --retry-all-errors --connect-timeout 30 --max-time 900 \
+              -o /tmp/flutter.tar.xz "$URL"
+            [ "$(stat -c%s /tmp/flutter.tar.xz)" -gt 1000000000 ] || { echo "下载文件大小异常"; exit 1; }
             rm -rf "$HOME/flutter"
             tar -xJf /tmp/flutter.tar.xz -C "$HOME"
             rm -f /tmp/flutter.tar.xz
