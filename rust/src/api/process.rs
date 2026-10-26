@@ -76,7 +76,7 @@ fn apply_priority_before_spawn(
     let p = priority.unwrap_or("normal");
     #[cfg(windows)]
     {
-        use tokio::process::CommandExt;
+        // tokio::process::Command 的 Windows 固有方法（同 std CommandExt 语义）
         let flag = match p {
             "high" => priority_flags::HIGH_PRIORITY_CLASS,
             "low" => priority_flags::BELOW_NORMAL_PRIORITY_CLASS,

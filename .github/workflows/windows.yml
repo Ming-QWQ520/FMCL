@@ -66,6 +66,8 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows release
+        env:
+          CARGOKIT_VERBOSE: '1'
         run: flutter build windows --release
 
       - name: Package portable zip

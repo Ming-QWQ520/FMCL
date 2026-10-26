@@ -76,6 +76,8 @@ jobs:
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - name: Build universal APK
+        env:
+          CARGOKIT_VERBOSE: '1'
         run: flutter build apk --release
 
       - name: Rename APK
