@@ -1,0 +1,52 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+coverage/
+**/GeneratedPluginRegistrant.*
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+
+# Rust
+rust/target/
+rust_builder/target/
+**/*.rs.bk
+Cargo.lock
+
+# FRB 中间产物
+.dart_tool/
+
+# 平台构建产物
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+android/.gradle/
+android/local.properties
+android/app/release/
+key.properties
+
+# 日志与运行时产物（本地测试用）
+*.log
+logs/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# FRB cargokit 构建缓存
+rust_builder/cargokit/build_tool/.dart_tool/
+rust_builder/cargokit/build_tool/build/
+rust_builder/build/
+
+# 测试产物
+test/.dart_tool/
+.config/

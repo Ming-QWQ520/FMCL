@@ -1,0 +1,5 @@
+# FMCL 官方支持并锁定的 Rust 工具链版本
+[toolchain]
+channel = "1.96.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

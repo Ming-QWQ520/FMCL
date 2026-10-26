@@ -1,0 +1,54 @@
+name: fmcl
+description: "FMCL — Fluent Minecraft Launcher. 一款现代化、高效、生产级可用的 Minecraft 启动器。"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # ---------- 状态管理与路由 ----------
+  flutter_riverpod: ^3.0.0
+  go_router: ^16.0.0
+
+  # ---------- 网络 ----------
+  dio: ^5.8.0
+
+  # ---------- 数据与工具 ----------
+  path: ^1.9.0
+  crypto: ^3.0.6
+  uuid: ^4.5.1
+  archive: ^4.0.7
+  intl: ^0.20.0
+  collection: ^1.19.0
+
+  # ---------- 桌面集成 ----------
+  window_manager: ^0.5.1
+  file_picker: ^10.0.0
+  url_launcher: ^6.3.1
+  shared_preferences: ^2.3.4
+  path_provider: ^2.1.5
+
+  # ---------- Rust 后端 (flutter_rust_bridge) ----------
+  rust_lib_fmcl:
+    path: rust_builder
+  flutter_rust_bridge: 2.13.0
+  ffi: ^2.1.3
+  meta: ^1.16.0
+  desktop_drop: ^0.8.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/img/

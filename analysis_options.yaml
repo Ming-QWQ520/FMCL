@@ -1,0 +1,27 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - "**/*.g.dart"
+    - "lib/rust/**"
+    - "rust_builder/**"
+    - build/**
+    - android/**
+    - windows/**
+    - linux/**
+
+linter:
+  rules:
+    # 风格
+    prefer_single_quotes: true
+    avoid_print: true
+    always_declare_return_types: true
+    unnecessary_lambdas: true
+    use_super_parameters: true
+    require_trailing_commas: true
+    sort_child_properties_last: true
+    # 以下为宽松项（异步 UI 流程中大量合理的 fire-and-forget 调用）
+    prefer_const_constructors: false
+    unawaited_futures: false
+    omit_local_variable_types: false
+
