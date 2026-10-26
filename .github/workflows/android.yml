@@ -43,20 +43,30 @@ jobs:
       - name: Cache Flutter SDK
         uses: actions/cache@v4
         with:
-          path: /opt/flutter
-          key: flutter-3.47.5-stable-linux
+          path: ~/flutter
+          key: flutter-3.47.5-stable-linux-v2
 
-      - name: Set up Flutter 3.47.5 (flutter-io.cn)
+      - name: Set up Flutter 3.47.5
         run: |
-          if [ ! -x /opt/flutter/bin/flutter ]; then
-            curl -sL --retry 5 -o /tmp/flutter.tar.xz \
+          if [ ! -x "$HOME/flutter/bin/flutter" ]; then
+            # 主源 googleapis（GH runner 快），备用 flutter-io.cn
+            URLS=(
+              "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.5-stable.tar.xz"
               "https://storage.flutter-io.cn/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.5-stable.tar.xz"
-            sudo rm -rf /opt/flutter
-            sudo tar -xJf /tmp/flutter.tar.xz -C /opt
+            )
+            for u in "${URLS[@]}"; do
+              echo "尝试下载: $u"
+              curl -sL --retry 5 --retry-all-errors --connect-timeout 30 -o /tmp/flutter.tar.xz "$u" && \
+                [ "$(stat -c%s /tmp/flutter.tar.xz)" -gt 1000000000 ] && break
+              rm -f /tmp/flutter.tar.xz
+            done
+            [ -s /tmp/flutter.tar.xz ] || { echo "Flutter SDK 下载失败"; exit 1; }
+            rm -rf "$HOME/flutter"
+            tar -xJf /tmp/flutter.tar.xz -C "$HOME"
             rm -f /tmp/flutter.tar.xz
           fi
-          /opt/flutter/bin/flutter --version
-          echo "/opt/flutter/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" --version
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
 
       - name: Pub get
         run: flutter pub get
