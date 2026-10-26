@@ -13,6 +13,7 @@ class GameVersionJson {
   final ClientDownloadRef? downloads;
   final List<Library> libraries;
   final ArgumentsSet? arguments;
+
   /// 1.13 前的旧版合并参数串
   final String? minecraftArguments;
   final JavaVersionRef? javaVersion;
@@ -51,7 +52,9 @@ class GameVersionJson {
       assets: json['assets'] as String?,
       downloads: json['downloads'] == null
           ? null
-          : ClientDownloadRef.fromJson(json['downloads'] as Map<String, dynamic>),
+          : ClientDownloadRef.fromJson(
+              json['downloads'] as Map<String, dynamic>,
+            ),
       libraries: (json['libraries'] as List<dynamic>? ?? [])
           .map((e) => Library.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -61,7 +64,9 @@ class GameVersionJson {
       minecraftArguments: json['minecraftArguments'] as String?,
       javaVersion: json['javaVersion'] == null
           ? null
-          : JavaVersionRef.fromJson(json['javaVersion'] as Map<String, dynamic>),
+          : JavaVersionRef.fromJson(
+              json['javaVersion'] as Map<String, dynamic>,
+            ),
       logging: json['logging'] == null
           ? null
           : LoggingConfig.fromJson(json['logging'] as Map<String, dynamic>),
@@ -89,12 +94,12 @@ class AssetIndexRef {
   });
 
   factory AssetIndexRef.fromJson(Map<String, dynamic> json) => AssetIndexRef(
-        id: json['id'] as String? ?? '',
-        url: json['url'] as String? ?? '',
-        sha1: json['sha1'] as String?,
-        size: json['size'] as int? ?? 0,
-        totalSize: json['totalSize'] as int? ?? 0,
-      );
+    id: json['id'] as String? ?? '',
+    url: json['url'] as String? ?? '',
+    sha1: json['sha1'] as String?,
+    size: json['size'] as int? ?? 0,
+    totalSize: json['totalSize'] as int? ?? 0,
+  );
 }
 
 /// 客户端/服务端下载引用
@@ -145,10 +150,8 @@ class OsRule {
 
   const OsRule({this.name, this.arch});
 
-  factory OsRule.fromJson(Map<String, dynamic> json) => OsRule(
-        name: json['name'] as String?,
-        arch: json['arch'] as String?,
-      );
+  factory OsRule.fromJson(Map<String, dynamic> json) =>
+      OsRule(name: json['name'] as String?, arch: json['arch'] as String?);
 }
 
 /// 库加载规则（allow/disallow）
@@ -159,9 +162,9 @@ class LibraryRule {
   const LibraryRule({required this.action, this.os});
 
   factory LibraryRule.fromJson(Map<String, dynamic> json) => LibraryRule(
-        action: json['action'] as String,
-        os: json['os'] == null ? null : OsRule.fromJson(json['os']),
-      );
+    action: json['action'] as String,
+    os: json['os'] == null ? null : OsRule.fromJson(json['os']),
+  );
 }
 
 /// natives 分类器描述
@@ -173,10 +176,10 @@ class NativesMap {
   const NativesMap({this.linux, this.windows, this.osx});
 
   factory NativesMap.fromJson(Map<String, dynamic> json) => NativesMap(
-        linux: json['linux'] as String?,
-        windows: json['windows'] as String?,
-        osx: json['osx'] as String?,
-      );
+    linux: json['linux'] as String?,
+    windows: json['windows'] as String?,
+    osx: json['osx'] as String?,
+  );
 }
 
 /// 解压规则
@@ -186,10 +189,10 @@ class ExtractRule {
   const ExtractRule({this.exclude = const []});
 
   factory ExtractRule.fromJson(Map<String, dynamic> json) => ExtractRule(
-        exclude: (json['exclude'] as List<dynamic>? ?? [])
-            .map((e) => e as String)
-            .toList(),
-      );
+    exclude: (json['exclude'] as List<dynamic>? ?? [])
+        .map((e) => e as String)
+        .toList(),
+  );
 }
 
 class LibraryDownloads {
@@ -202,7 +205,9 @@ class LibraryDownloads {
       LibraryDownloads(
         artifact: json['artifact'] == null
             ? null
-            : DownloadableFile.fromJson(json['artifact'] as Map<String, dynamic>),
+            : DownloadableFile.fromJson(
+                json['artifact'] as Map<String, dynamic>,
+              ),
         classifiers: (json['classifiers'] as Map<String, dynamic>? ?? {}).map(
           (k, v) =>
               MapEntry(k, DownloadableFile.fromJson(v as Map<String, dynamic>)),
@@ -216,6 +221,7 @@ class Library {
   final List<LibraryRule>? rules;
   final NativesMap? natives;
   final LibraryDownloads? downloads;
+
   /// Forge 等自定义 maven 根（无 downloads 键时按 maven 布局拼接）
   final String? url;
   final ExtractRule? extract;
@@ -230,25 +236,25 @@ class Library {
   });
 
   factory Library.fromJson(Map<String, dynamic> json) => Library(
-        name: json['name'] as String,
-        rules: (json['rules'] as List<dynamic>?)
-            ?.map((e) => LibraryRule.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        natives: json['natives'] == null
-            ? null
-            : NativesMap.fromJson(json['natives'] as Map<String, dynamic>),
-        downloads: json['downloads'] == null
-            ? null
-            : LibraryDownloads.fromJson(json['downloads'] as Map<String, dynamic>),
-        url: json['url'] as String?,
-        extract: json['extract'] == null
-            ? null
-            : ExtractRule.fromJson(json['extract'] as Map<String, dynamic>),
-      );
+    name: json['name'] as String,
+    rules: (json['rules'] as List<dynamic>?)
+        ?.map((e) => LibraryRule.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    natives: json['natives'] == null
+        ? null
+        : NativesMap.fromJson(json['natives'] as Map<String, dynamic>),
+    downloads: json['downloads'] == null
+        ? null
+        : LibraryDownloads.fromJson(json['downloads'] as Map<String, dynamic>),
+    url: json['url'] as String?,
+    extract: json['extract'] == null
+        ? null
+        : ExtractRule.fromJson(json['extract'] as Map<String, dynamic>),
+  );
 
   /// maven 坐标: group:artifact:version[:classifier]
   static (String group, String artifact, String version, String? classifier)
-      parseMaven(String name) {
+  parseMaven(String name) {
     final segs = name.split(':');
     final group = segs[0];
     final artifact = segs[1];
@@ -257,8 +263,7 @@ class Library {
     // 处理 version-classifier 连写（如 1.2.3-client）
     if (classifier == null && version.contains('-')) {
       final parts = version.split('-');
-      if (parts.length == 2 &&
-          (parts[1] == 'client' || parts[1] == 'server')) {
+      if (parts.length == 2 && (parts[1] == 'client' || parts[1] == 'server')) {
         // 谨慎：部分库版本号本身含连字符，仅在匹配已知后缀时拆分
         classifier = parts[1];
       }
@@ -270,9 +275,7 @@ class Library {
   String get path {
     final (g, a, v, c) = parseMaven(name);
     final ext = _extOf(g);
-    final fileName = c == null
-        ? '$a-$v.$ext'
-        : '$a-$v-$c.$ext';
+    final fileName = c == null ? '$a-$v.$ext' : '$a-$v-$c.$ext';
     return '${g.replaceAll('.', '/')}/$a/$v/$fileName';
   }
 
@@ -292,7 +295,7 @@ class Library {
     if (key == null) return null;
     // 处理 arch 后缀（1.19+ 分离 arm64/x86_64）
     if (arch == 'aarch64') {
-      final armKey = key.contains('-arm64') ? key : '${key}-arm64';
+      final armKey = key.contains('-arm64') ? key : '$key-arm64';
       final f = downloads?.classifiers[armKey];
       if (f != null) return armKey;
     }
@@ -305,7 +308,8 @@ class Library {
     var allowed = false;
     for (final rule in rules!) {
       final osMatch =
-          rule.os == null || (rule.os!.name == osName && _archMatch(rule.os!.arch, arch));
+          rule.os == null ||
+          (rule.os!.name == osName && _archMatch(rule.os!.arch, arch));
       if (!osMatch) continue;
       if (rule.action == 'allow') {
         allowed = true;
@@ -330,9 +334,9 @@ class ArgumentsSet {
   const ArgumentsSet({this.game = const [], this.jvm = const []});
 
   factory ArgumentsSet.fromJson(Map<String, dynamic> json) => ArgumentsSet(
-        game: json['game'] as List<dynamic>? ?? [],
-        jvm: json['jvm'] as List<dynamic>? ?? [],
-      );
+    game: json['game'] as List<dynamic>? ?? [],
+    jvm: json['jvm'] as List<dynamic>? ?? [],
+  );
 }
 
 class JavaVersionRef {
@@ -342,9 +346,9 @@ class JavaVersionRef {
   const JavaVersionRef({required this.component, required this.majorVersion});
 
   factory JavaVersionRef.fromJson(Map<String, dynamic> json) => JavaVersionRef(
-        component: json['component'] as String? ?? 'java-runtime-gamma',
-        majorVersion: json['majorVersion'] as int? ?? 8,
-      );
+    component: json['component'] as String? ?? 'java-runtime-gamma',
+    majorVersion: json['majorVersion'] as int? ?? 8,
+  );
 }
 
 /// 日志配置（log4j xml，用于 1.12+ 崩溃信息规范化）

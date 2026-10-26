@@ -9,7 +9,7 @@ class AppConstants {
   static const String appFullName = 'Fluent Minecraft Launcher';
 
   /// 版本号（与 pubspec version 同步）
-  static const String appVersion = '1.0.0';
+  static const String appVersion = '0.1.0';
 
   /// 仓库地址
   static const String repoUrl = 'https://github.com/Ming-QWQ520/FMCL';

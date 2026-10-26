@@ -5,7 +5,8 @@ class VersionManifest {
 
   const VersionManifest({required this.latest, required this.versions});
 
-  factory VersionManifest.fromJson(Map<String, dynamic> json) => VersionManifest(
+  factory VersionManifest.fromJson(Map<String, dynamic> json) =>
+      VersionManifest(
         latest: Latest.fromJson(json['latest'] as Map<String, dynamic>? ?? {}),
         versions: (json['versions'] as List<dynamic>? ?? [])
             .map((e) => VersionEntry.fromJson(e as Map<String, dynamic>))
@@ -13,9 +14,9 @@ class VersionManifest {
       );
 
   Map<String, dynamic> toJson() => {
-        'latest': latest.toJson(),
-        'versions': versions.map((e) => e.toJson()).toList(),
-      };
+    'latest': latest.toJson(),
+    'versions': versions.map((e) => e.toJson()).toList(),
+  };
 }
 
 class Latest {
@@ -25,9 +26,9 @@ class Latest {
   const Latest({required this.release, required this.snapshot});
 
   factory Latest.fromJson(Map<String, dynamic> json) => Latest(
-        release: json['release'] as String? ?? '',
-        snapshot: json['snapshot'] as String? ?? '',
-      );
+    release: json['release'] as String? ?? '',
+    snapshot: json['snapshot'] as String? ?? '',
+  );
 
   Map<String, dynamic> toJson() => {'release': release, 'snapshot': snapshot};
 }
@@ -46,18 +47,18 @@ class VersionEntry {
   });
 
   factory VersionEntry.fromJson(Map<String, dynamic> json) => VersionEntry(
-        id: json['id'] as String,
-        type: json['type'] as String? ?? 'release',
-        url: json['url'] as String? ?? '',
-        releaseTime: json['releaseTime'] as String?,
-      );
+    id: json['id'] as String,
+    type: json['type'] as String? ?? 'release',
+    url: json['url'] as String? ?? '',
+    releaseTime: json['releaseTime'] as String?,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'type': type,
-        'url': url,
-        if (releaseTime != null) 'releaseTime': releaseTime,
-      };
+    'id': id,
+    'type': type,
+    'url': url,
+    if (releaseTime != null) 'releaseTime': releaseTime,
+  };
 
   bool get isRelease => type == 'release';
   bool get isSnapshot => type == 'snapshot';

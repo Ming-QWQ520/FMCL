@@ -42,7 +42,67 @@ pub struct ProcessSpawnConfig {
     pub working_dir: String,
     /// 附加环境变量（在继承父进程环境之上）
     pub env: HashMap<String, String>,
+    /// 进程优先级（借鉴 HMCL 启动设置）："high" | "normal" | "low"，None 视为 normal
+    pub process_priority: Option<String>,
 }
+
+/// Windows 优先级类别常量（PROCESS_CREATION_FLAGS）
+#[cfg(windows)]
+mod priority_flags {
+    pub const HIGH_PRIORITY_CLASS: u32 = 0x0000_0080;
+    pub const NORMAL_PRIORITY_CLASS: u32 = 0x0000_0020;
+    pub const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+    pub const IDLE_PRIORITY_CLASS: u32 = 0x0000_0040;
+}
+
+/// 将优先级字符串映射为 Unix nice 值（高=-5 / 普通=0 / 低=10）
+#[cfg(unix)]
+fn nice_for(priority: &str) -> i32 {
+    match priority {
+        "high" => -5,
+        "low" => 10,
+        _ => 0,
+    }
+}
+
+/// 按优先级配置子进程（必须在 spawn 之前调用）。
+///
+/// - Windows: 通过 CREATE 进程优先级类别（HIGH/NORMAL/BELOW_NORMAL/IDLE）
+/// - Unix: spawn 后 setpriority（无权限时静默回退普通优先级）
+fn apply_priority_before_spawn(
+    cmd: &mut Command,
+    priority: Option<&str>,
+) {
+    let p = priority.unwrap_or("normal");
+    #[cfg(windows)]
+    {
+        use tokio::process::CommandExt;
+        let flag = match p {
+            "high" => priority_flags::HIGH_PRIORITY_CLASS,
+            "low" => priority_flags::BELOW_NORMAL_PRIORITY_CLASS,
+            _ => priority_flags::NORMAL_PRIORITY_CLASS,
+        };
+        cmd.creation_flags(flag | 0x0000_0400); // CREATE_NO_WINDOW，避免弹出控制台
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (cmd, p); // Unix 在 spawn 后 setpriority
+    }
+}
+
+/// spawn 后设置 Unix 优先级（best effort）
+#[cfg(unix)]
+fn apply_priority_after_spawn(pid: u32, priority: Option<&str>) {
+    let p = priority.unwrap_or("normal");
+    let nice = nice_for(p);
+    if nice != 0 {
+        // 降低 nice（提高优先级）需要特权，失败时静默保持普通优先级
+        let _ = unsafe { libc::setpriority(libc::PRIO_PROCESS, pid, nice) };
+    }
+}
+
+#[cfg(not(unix))]
+fn apply_priority_after_spawn(_pid: u32, _priority: Option<&str>) {}
 
 struct ChildHandle {
     child: Arc<Mutex<tokio::process::Child>>,
@@ -73,10 +133,15 @@ pub async fn spawn_game_process(config: ProcessSpawnConfig) -> Result<i32> {
     for (k, v) in &config.env {
         cmd.env(k, v);
     }
+    apply_priority_before_spawn(&mut cmd, config.process_priority.as_deref());
 
     let mut child = cmd
         .spawn()
         .map_err(|e| anyhow!("启动进程失败 ({}): {e}", config.program))?;
+
+    if let Some(pid) = child.id() {
+        apply_priority_after_spawn(pid, config.process_priority.as_deref());
+    }
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();

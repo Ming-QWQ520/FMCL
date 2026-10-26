@@ -366,7 +366,7 @@ class _ModrinthHitTile extends StatelessWidget {
                   hit.iconUrl!,
                   width: 44,
                   height: 44,
-                  errorBuilder: (_, __, ___) => const Icon(Icons.extension_rounded),
+                  errorBuilder: (_, _, _) => const Icon(Icons.extension_rounded),
                 ),
               )
             else

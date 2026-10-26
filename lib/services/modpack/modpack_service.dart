@@ -8,7 +8,6 @@ import 'package:path/path.dart' as p;
 import '../../core/error/app_exception.dart';
 import '../../core/logger/app_logger.dart';
 import '../../data/models/app_settings.dart';
-import '../../data/sources/download_source.dart';
 import '../../providers/settings_provider.dart';
 import '../download/download_manager.dart';
 import '../install/installer_base.dart';
@@ -299,4 +298,4 @@ class ModrinthIndexFile {
 
 /// Provider
 final modpackServiceProvider =
-    Provider<ModpackService>((ref) => ModpackService(ref));
+    Provider<ModpackService>(ModpackService.new);

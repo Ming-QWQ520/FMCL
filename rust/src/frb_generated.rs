@@ -1397,11 +1397,13 @@ impl SseDecode for crate::api::process::ProcessSpawnConfig {
         let mut var_args = <Vec<String>>::sse_decode(deserializer);
         let mut var_workingDir = <String>::sse_decode(deserializer);
         let mut var_env = <std::collections::HashMap<String, String>>::sse_decode(deserializer);
+        let mut var_processPriority = <Option<String>>::sse_decode(deserializer);
         return crate::api::process::ProcessSpawnConfig {
             program: var_program,
             args: var_args,
             working_dir: var_workingDir,
             env: var_env,
+            process_priority: var_processPriority,
         };
     }
 }
@@ -1833,6 +1835,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::process::ProcessSpawnConfig {
             self.args.into_into_dart().into_dart(),
             self.working_dir.into_into_dart().into_dart(),
             self.env.into_into_dart().into_dart(),
+            self.process_priority.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2263,6 +2266,7 @@ impl SseEncode for crate::api::process::ProcessSpawnConfig {
         <Vec<String>>::sse_encode(self.args, serializer);
         <String>::sse_encode(self.working_dir, serializer);
         <std::collections::HashMap<String, String>>::sse_encode(self.env, serializer);
+        <Option<String>>::sse_encode(self.process_priority, serializer);
     }
 }
 

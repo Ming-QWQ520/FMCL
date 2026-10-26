@@ -117,8 +117,6 @@ class LaunchService {
   int _nextSessionId = 1;
   int _primarySessionId = 0;
 
-  LaunchState get _state => _ref.read(launchStateProvider);
-
   void _update(int sessionId, LaunchState Function(LaunchState) mutator) {
     final current = _sessions[sessionId];
     if (current == null) return;
@@ -161,9 +159,7 @@ class LaunchService {
       startedAt: DateTime.now(),
     );
     _primarySessionId = sessionId;
-    _ref
-        .read(launchStateProvider.notifier)
-        .set(_sessions[sessionId]!);
+    _ref.read(launchStateProvider.notifier).set(_sessions[sessionId]!);
     _syncSessions();
 
     try {
@@ -180,12 +176,20 @@ class LaunchService {
       final gameDir = settings.gameDirectory;
       // 版本设置（PCL2 式：全局继承 + 每版本覆盖，决定隔离目录与 Java/内存）
       final vOverride = await VersionSettingsService.I.load(gameDir, versionId);
-      final effective =
-          VersionSettingsService.I.resolve(settings, gameDir, versionId, vOverride);
+      final effective = VersionSettingsService.I.resolve(
+        settings,
+        gameDir,
+        versionId,
+        vOverride,
+      );
       AppLogger.info(
-          'Launch',
-          '版本设置: 隔离=${effective.isolated} workDir=${effective.workDir}');
-      final leaf = await VersionRepository.I.fetchVersionJson(versionId, gameDir);
+        'Launch',
+        '版本设置: 隔离=${effective.isolated} workDir=${effective.workDir}',
+      );
+      final leaf = await VersionRepository.I.fetchVersionJson(
+        versionId,
+        gameDir,
+      );
       final chain = await VersionRepository.I.resolveChain(leaf, gameDir);
       final merged = _mergeChain(chain);
       AppLogger.info('Launch', '版本链: ${chain.map((c) => c.id).join(' ← ')}');
@@ -193,24 +197,29 @@ class LaunchService {
       // ---------- 4. 补全文件 ----------
       final missing = await _collectMissingFiles(merged, gameDir);
       if (missing.isNotEmpty) {
-        _update(sessionId, (s) => s.copyWith(
-              phase: LaunchPhase.downloading,
-              message: '补全游戏文件（${missing.length} 个）...',
-              progress: 0,
-            ));
+        _update(
+          sessionId,
+          (s) => s.copyWith(
+            phase: LaunchPhase.downloading,
+            message: '补全游戏文件（${missing.length} 个）...',
+            progress: 0,
+          ),
+        );
         await _downloadMissing(sessionId, missing);
       }
 
       // ---------- 5. 解压 natives ----------
-      _update(sessionId, (s) => s.copyWith(
-            phase: LaunchPhase.extracting,
-            message: '解压本地库...',
-          ));
+      _update(
+        sessionId,
+        (s) => s.copyWith(phase: LaunchPhase.extracting, message: '解压本地库...'),
+      );
       final nativesDir = await _extractNatives(merged, gameDir);
 
       // ---------- 6. Java ----------
       _update(sessionId, (s) => s.copyWith(message: '选择 Java 运行时...'));
-      final requiredJava = merged.javaVersion?.majorVersion ?? _guessJavaMajor(gameDir, versionId);
+      final requiredJava =
+          merged.javaVersion?.majorVersion ??
+          _guessJavaMajor(gameDir, versionId);
       final javaService = _ref.read(javaServiceProvider);
       final javaInfo = await javaService.pickJava(
         requiredJava,
@@ -218,7 +227,18 @@ class LaunchService {
         autoInstall: true,
       );
       AppLogger.info(
-          'Launch', 'Java: ${javaInfo.versionString} (${javaInfo.vendor})');
+        'Launch',
+        'Java: ${javaInfo.versionString} (${javaInfo.vendor})',
+      );
+
+      // ---------- 6.5 内存安全校验（借鉴 PCL2：超出物理内存时拒绝启动） ----------
+      final sysInfo = await rust.systemInfo();
+      if (effective.maxMemoryMb > sysInfo.totalMemoryMb * 0.9) {
+        throw LaunchException(
+          '分配内存 ${effective.maxMemoryMb} MiB 超过物理内存 ${sysInfo.totalMemoryMb} MiB 的 90%，'
+          '可能导致游戏频繁交换崩溃。请在设置或版本设置中调低内存。',
+        );
+      }
 
       // ---------- 7. Yggdrasil 令牌续期 + authlib-injector ----------
       String authlibArg = '';
@@ -227,10 +247,11 @@ class LaunchService {
       }
 
       // ---------- 8. 构建参数 ----------
-      _update(sessionId, (s) => s.copyWith(
-            phase: LaunchPhase.buildingArgs,
-            message: '构建启动参数...',
-          ));
+      _update(
+        sessionId,
+        (s) =>
+            s.copyWith(phase: LaunchPhase.buildingArgs, message: '构建启动参数...'),
+      );
       // 版本设置覆盖内存/JVM 参数后传入构建器
       final mergedSettings = settings.copyWith(
         minMemoryMb: effective.minMemoryMb,
@@ -258,30 +279,69 @@ class LaunchService {
       );
 
       // ---------- 9. 启动进程 ----------
-      _update(sessionId, (s) => s.copyWith(
-            phase: LaunchPhase.launching,
-            message: '启动 Minecraft...',
-          ));
+      _update(
+        sessionId,
+        (s) => s.copyWith(
+          phase: LaunchPhase.launching,
+          message: '启动 Minecraft...',
+        ),
+      );
 
-      final logFile = File(p.join(gameDir, 'logs', 'fmcl',
-          'game-${DateTime.now().millisecondsSinceEpoch}.log'));
-      if (!logFile.parent.existsSync()) logFile.parent.createSync(recursive: true);
+      // 启动前命令（借鉴 HMCL「启动游戏前执行命令」；失败则中止启动）
+      final preCmd = settings.preLaunchCommand.trim();
+      if (preCmd.isNotEmpty) {
+        _update(sessionId, (s) => s.copyWith(message: '执行启动前命令...'));
+        await _runPreLaunchCommand(preCmd, effective.workDir, versionId);
+      }
+
+      final logFile = File(
+        p.join(
+          gameDir,
+          'logs',
+          'fmcl',
+          'game-${DateTime.now().millisecondsSinceEpoch}.log',
+        ),
+      );
+      if (!logFile.parent.existsSync()) {
+        logFile.parent.createSync(recursive: true);
+      }
       final logSink = logFile.openWrite();
 
+      // 额外环境变量（每行 KEY=VALUE）与包装命令（借鉴 HMCL wrapper）
+      final envMap = _parseLaunchEnvironment(settings.launchEnvironment);
+      final wrapper = settings.wrapperCommand.trim();
+      final program = wrapper.isNotEmpty ? wrapper : javaInfo.javaPath;
+      final spawnArgs = <String>[
+        if (wrapper.isNotEmpty) javaInfo.javaPath,
+        ...jvmArgs,
+        merged.mainClass,
+        ...gameArgs,
+      ];
+      // 进程优先级（借鉴 HMCL：高 / 普通 / 低，Rust 侧跨平台应用）
+      final priorityStr = switch (settings.processPriority) {
+        1 => 'high',
+        2 => 'low',
+        _ => 'normal',
+      };
+
       final config = rust.ProcessSpawnConfig(
-        program: javaInfo.javaPath,
-        args: [...jvmArgs, merged.mainClass, ...gameArgs],
+        program: program,
+        args: spawnArgs,
         workingDir: effective.workDir,
-        env: {},
+        env: envMap,
+        processPriority: priorityStr,
       );
       final handle = await rust.spawnGameProcess(config: config);
       final stream = rust.attachOutputStream(handleId: handle);
 
-      _update(sessionId, (s) => s.copyWith(
-            phase: LaunchPhase.running,
-            message: '游戏运行中',
-            handleId: handle,
-          ));
+      _update(
+        sessionId,
+        (s) => s.copyWith(
+          phase: LaunchPhase.running,
+          message: '游戏运行中',
+          handleId: handle,
+        ),
+      );
 
       // 监听日志
       final sub = stream.listen((event) {
@@ -299,17 +359,17 @@ class LaunchService {
       _applyLauncherBehavior();
     } on AppException catch (e) {
       AppLogger.error('Launch', '启动失败: ${e.userMessage}', e.technicalDetail);
-      _update(sessionId, (s) => s.copyWith(
-            phase: LaunchPhase.failed,
-            message: e.userMessage,
-          ));
+      _update(
+        sessionId,
+        (s) => s.copyWith(phase: LaunchPhase.failed, message: e.userMessage),
+      );
       rethrow;
     } catch (e, s) {
       AppLogger.error('Launch', '启动失败（未预期）', e, s);
-      _update(sessionId, (s) => s.copyWith(
-            phase: LaunchPhase.failed,
-            message: '启动失败: $e',
-          ));
+      _update(
+        sessionId,
+        (s) => s.copyWith(phase: LaunchPhase.failed, message: '启动失败: $e'),
+      );
       throw LaunchException('启动失败: $e', technicalDetail: s.toString());
     }
   }
@@ -324,6 +384,50 @@ class LaunchService {
     }
   }
 
+  /// 解析用户输入的环境变量行（KEY=VALUE，忽略非法行）
+  Map<String, String> _parseLaunchEnvironment(List<String> lines) {
+    final env = <String, String>{};
+    for (final line in lines) {
+      final idx = line.indexOf('=');
+      if (idx <= 0) continue;
+      final key = line.substring(0, idx).trim();
+      final value = line.substring(idx + 1).trim();
+      if (key.isEmpty) continue;
+      env[key] = value;
+    }
+    return env;
+  }
+
+  /// 执行启动前命令（借鉴 HMCL）；非 0 退出码抛出异常中止本次启动。
+  /// 支持占位符：$VERSION_ID / $GAME_DIR。
+  Future<void> _runPreLaunchCommand(
+    String command,
+    String workDir,
+    String versionId,
+  ) async {
+    final resolved = command
+        .replaceAll(r'$VERSION_ID', versionId)
+        .replaceAll(r'$GAME_DIR', workDir);
+    AppLogger.info('Launch', '执行启动前命令: $resolved');
+    final result = await Process.run(
+      Platform.isWindows ? 'cmd.exe' : 'sh',
+      Platform.isWindows ? ['/d', '/c', resolved] : ['-c', resolved],
+      workingDirectory: workDir,
+      stdoutEncoding: const Utf8Codec(allowMalformed: true),
+      stderrEncoding: const Utf8Codec(allowMalformed: true),
+    );
+    if (result.stdout.toString().trim().isNotEmpty) {
+      AppLogger.info('PreLaunch', result.stdout.toString().trim());
+    }
+    if (result.exitCode != 0) {
+      final err = result.stderr.toString().trim();
+      AppLogger.error('PreLaunch', '启动前命令失败（退出码 ${result.exitCode}）', err);
+      throw LaunchException(
+        '启动前命令执行失败（退出码 ${result.exitCode}）${err.isEmpty ? '' : ': $err'}',
+      );
+    }
+  }
+
   /// 账户准备（含微软令牌自动刷新）
   Future<GameAccount> _prepareAccount() async {
     await _ref.read(accountsProvider.notifier).refreshIfNeeded();
@@ -332,13 +436,17 @@ class LaunchService {
       throw const LaunchException(
         '尚未登录任何账户',
         suggestions: [
-          FixSuggestion('添加账户', '在「账户」页添加离线账户或登录微软/外置账户。',
-              actionId: 'goto_accounts'),
+          FixSuggestion(
+            '添加账户',
+            '在「账户」页添加离线账户或登录微软/外置账户。',
+            actionId: 'goto_accounts',
+          ),
         ],
       );
     }
     // Yggdrasil 令牌续期
-    if (account.type == AccountType.yggdrasil && account.yggdrasilServer != null) {
+    if (account.type == AccountType.yggdrasil &&
+        account.yggdrasilServer != null) {
       // 简单校验，失败则提示重新登录（不中断启动——离线降级由用户决定）
       try {
         final fresh = await YggdrasilAuthService.validateOrRefresh(
@@ -349,14 +457,16 @@ class LaunchService {
           profileName: account.name,
         );
         if (fresh != account.accessToken) {
-          await _ref.read(accountsProvider.notifier).addYggdrasilAccount(
-            serverUrl: account.yggdrasilServer!,
-            name: account.name,
-            accessToken: fresh,
-            uuid: account.uuid,
-            profileId: account.profileId ?? '',
-            expiresAt: 0,
-          );
+          await _ref
+              .read(accountsProvider.notifier)
+              .addYggdrasilAccount(
+                serverUrl: account.yggdrasilServer!,
+                name: account.name,
+                accessToken: fresh,
+                uuid: account.uuid,
+                profileId: account.profileId ?? '',
+                expiresAt: 0,
+              );
           final updated = _ref.read(currentAccountProvider);
           return updated ?? account;
         }
@@ -442,16 +552,18 @@ class LaunchService {
     final osName = Platform.isWindows
         ? 'windows'
         : Platform.isMacOS
-            ? 'osx'
-            : 'linux';
-    final arch = Platform.version.contains('arm64') || Platform.version.contains('aarch64')
+        ? 'osx'
+        : 'linux';
+    final arch =
+        Platform.version.contains('arm64') ||
+            Platform.version.contains('aarch64')
         ? 'aarch64'
         : 'x86_64';
     for (final r in rules.cast<Map<String, dynamic>>()) {
       final os = r['os'] as Map<String, dynamic>?;
-      final osMatch = os == null ||
-          (os['name'] == osName &&
-              (os['arch'] == null || os['arch'] == arch));
+      final osMatch =
+          os == null ||
+          (os['name'] == osName && (os['arch'] == null || os['arch'] == arch));
       if (!osMatch) continue;
       if (r['action'] == 'allow') allowed = true;
       if (r['action'] == 'disallow') allowed = false;
@@ -495,30 +607,37 @@ class LaunchService {
       final osName = Platform.isWindows
           ? 'windows'
           : Platform.isMacOS
-              ? 'osx'
-              : 'linux';
-      final arch = Platform.operatingSystemVersion.contains('arm') ? 'aarch64' : 'x86_64';
+          ? 'osx'
+          : 'linux';
+      final arch = Platform.operatingSystemVersion.contains('arm')
+          ? 'aarch64'
+          : 'x86_64';
       if (!lib.isAllowedOn(osName, arch)) continue;
 
       final artifact = lib.downloads?.artifact;
       if (artifact != null && artifact.url.isNotEmpty) {
         final savePath = p.join(librariesDir, artifact.path ?? lib.path);
-        tasks.add(DownloadTask(
-          url: source.mapUrl(artifact.url),
-          savePath: savePath,
-          sha1: settingsOf(_ref).verifyFiles ? artifact.sha1 : null,
-          size: artifact.size,
-        ));
+        tasks.add(
+          DownloadTask(
+            url: source.mapUrl(artifact.url),
+            savePath: savePath,
+            sha1: settingsOf(_ref).verifyFiles ? artifact.sha1 : null,
+            size: artifact.size,
+          ),
+        );
       } else if (lib.downloads?.artifact == null) {
         // maven 布局推导（Forge 库等）
-        final base = lib.url ??
+        final base =
+            lib.url ??
             (source.kind == DownloadSourceKind.bmclapi
                 ? AppConstants.bmclapiLibraries
                 : AppConstants.officialLibraries);
-        tasks.add(DownloadTask(
-          url: source.mapUrl('$base/${lib.path}'),
-          savePath: p.join(librariesDir, lib.path),
-        ));
+        tasks.add(
+          DownloadTask(
+            url: source.mapUrl('$base/${lib.path}'),
+            savePath: p.join(librariesDir, lib.path),
+          ),
+        );
       }
 
       // natives 分类器
@@ -528,13 +647,17 @@ class LaunchService {
           final nativeFile = lib.downloads?.classifiers[classifier];
           if (nativeFile != null) {
             final savePath = p.join(
-                librariesDir, nativeFile.path ?? '${lib.path}.$classifier');
-            tasks.add(DownloadTask(
-              url: source.mapUrl(nativeFile.url),
-              savePath: savePath,
-              sha1: settingsOf(_ref).verifyFiles ? nativeFile.sha1 : null,
-              size: nativeFile.size,
-            ));
+              librariesDir,
+              nativeFile.path ?? '${lib.path}.$classifier',
+            );
+            tasks.add(
+              DownloadTask(
+                url: source.mapUrl(nativeFile.url),
+                savePath: savePath,
+                sha1: settingsOf(_ref).verifyFiles ? nativeFile.sha1 : null,
+                size: nativeFile.size,
+              ),
+            );
           }
         }
       }
@@ -544,13 +667,19 @@ class LaunchService {
     final assetIndexRef = merged.assetIndex;
     if (assetIndexRef != null) {
       final indexSavePath = p.join(
-          gameDir, 'assets', 'indexes', '${assetIndexRef.id}.json');
-      tasks.add(DownloadTask(
-        url: source.mapUrl(assetIndexRef.url),
-        savePath: indexSavePath,
-        sha1: assetIndexRef.sha1,
-        size: assetIndexRef.size,
-      ));
+        gameDir,
+        'assets',
+        'indexes',
+        '${assetIndexRef.id}.json',
+      );
+      tasks.add(
+        DownloadTask(
+          url: source.mapUrl(assetIndexRef.url),
+          savePath: indexSavePath,
+          sha1: assetIndexRef.sha1,
+          size: assetIndexRef.size,
+        ),
+      );
 
       if (File(indexSavePath).existsSync()) {
         try {
@@ -560,12 +689,14 @@ class LaunchService {
               : AppConstants.officialResources;
           for (final obj in indexJson.values) {
             final savePath = p.join(gameDir, 'assets', obj.storePath);
-            tasks.add(DownloadTask(
-              url: '$objectsBase/${obj.urlPath}',
-              savePath: savePath,
-              sha1: obj.hash,
-              size: obj.size,
-            ));
+            tasks.add(
+              DownloadTask(
+                url: '$objectsBase/${obj.urlPath}',
+                savePath: savePath,
+                sha1: obj.hash,
+                size: obj.size,
+              ),
+            );
           }
         } catch (e) {
           AppLogger.warn('Launch', '资源索引解析失败（启动时重新下载）: $e');
@@ -577,13 +708,19 @@ class LaunchService {
     final loggingFile = merged.logging?.clientFile;
     if (loggingFile != null && loggingFile.url.isNotEmpty) {
       final savePath = p.join(
-          gameDir, 'assets', 'log_configs', loggingFile.path?.split('/').last ?? 'client.xml');
-      tasks.add(DownloadTask(
-        url: source.mapUrl(loggingFile.url),
-        savePath: savePath,
-        sha1: loggingFile.sha1,
-        size: loggingFile.size,
-      ));
+        gameDir,
+        'assets',
+        'log_configs',
+        loggingFile.path?.split('/').last ?? 'client.xml',
+      );
+      tasks.add(
+        DownloadTask(
+          url: source.mapUrl(loggingFile.url),
+          savePath: savePath,
+          sha1: loggingFile.sha1,
+          size: loggingFile.size,
+        ),
+      );
     }
 
     // 过滤已存在且校验通过的
@@ -598,7 +735,9 @@ class LaunchService {
         filtered.add(t);
         continue;
       }
-      if (settingsOf(_ref).verifyFiles && t.sha1 != null && t.sha1!.isNotEmpty) {
+      if (settingsOf(_ref).verifyFiles &&
+          t.sha1 != null &&
+          t.sha1!.isNotEmpty) {
         try {
           final sha = await rust.fileSha1(path: t.savePath);
           if (sha != t.sha1) {
@@ -614,26 +753,33 @@ class LaunchService {
   }
 
   Future<Map<String, AssetObject>> _readAssetIndex(String path) async {
-    final json = jsonDecode(await File(path).readAsString()) as Map<String, dynamic>;
+    final json =
+        jsonDecode(await File(path).readAsString()) as Map<String, dynamic>;
     final objects = (json['objects'] as Map<String, dynamic>? ?? {}).map(
       (k, v) => MapEntry(
-          k, AssetObject(hash: v['hash'] as String, size: v['size'] as int? ?? 0)),
+        k,
+        AssetObject(hash: v['hash'] as String, size: v['size'] as int? ?? 0),
+      ),
     );
     return objects;
   }
 
   Future<void> _downloadMissing(int sessionId, List<DownloadTask> tasks) async {
     // 走 DownloadManager（Rust 引擎）
-    await _ref.read(downloadManagerForLaunchProvider).downloadAll(
-      tasks,
-      onProgress: (state) {
-        _update(sessionId, (s) => s.copyWith(
-              progress: state.progress,
-              message:
-                  '补全游戏文件 ${state.finishedFiles}/${state.totalFiles}',
-            ));
-      },
-    );
+    await _ref
+        .read(downloadManagerForLaunchProvider)
+        .downloadAll(
+          tasks,
+          onProgress: (state) {
+            _update(
+              sessionId,
+              (s) => s.copyWith(
+                progress: state.progress,
+                message: '补全游戏文件 ${state.finishedFiles}/${state.totalFiles}',
+              ),
+            );
+          },
+        );
     final st = _ref.read(downloadStateProvider);
     if (st.phase == DownloadPhase.failed) {
       throw NetworkException('游戏文件下载失败: ${st.lastError ?? '未知'}');
@@ -651,9 +797,11 @@ class LaunchService {
     final osName = Platform.isWindows
         ? 'windows'
         : Platform.isMacOS
-            ? 'osx'
-            : 'linux';
-    final arch = Platform.operatingSystemVersion.contains('arm') ? 'aarch64' : 'x86_64';
+        ? 'osx'
+        : 'linux';
+    final arch = Platform.operatingSystemVersion.contains('arm')
+        ? 'aarch64'
+        : 'x86_64';
 
     for (final lib in merged.libraries) {
       if (lib.natives == null) continue;
@@ -664,7 +812,9 @@ class LaunchService {
       if (nativeFile == null) continue;
 
       final jarPath = p.join(
-          librariesDir, nativeFile.path ?? '${lib.path}.$classifier');
+        librariesDir,
+        nativeFile.path ?? '${lib.path}.$classifier',
+      );
       if (!File(jarPath).existsSync()) {
         throw VerifyException('natives 库缺失: ${lib.name}');
       }
@@ -676,8 +826,10 @@ class LaunchService {
           onlyNativeLib: false,
         );
       } catch (e) {
-        throw FileSystemException('解压 natives 失败: ${lib.name}',
-            technicalDetail: e.toString());
+        throw FileSystemException(
+          '解压 natives 失败: ${lib.name}',
+          technicalDetail: e.toString(),
+        );
       }
     }
     return nativesDir;
@@ -685,7 +837,10 @@ class LaunchService {
 
   // ---------------- authlib-injector ----------------
 
-  Future<String> _prepareAuthlibInjector(int sessionId, GameAccount account) async {
+  Future<String> _prepareAuthlibInjector(
+    int sessionId,
+    GameAccount account,
+  ) async {
     final gameDir = _ref.read(appSettingsProvider).gameDirectory;
     final jarPath = p.join(gameDir, 'fmcl-authlib-injector.jar');
 
@@ -717,9 +872,11 @@ class LaunchService {
     final osName = Platform.isWindows
         ? 'windows'
         : Platform.isMacOS
-            ? 'osx'
-            : 'linux';
-    final arch = Platform.operatingSystemVersion.contains('arm') ? 'aarch64' : 'x86_64';
+        ? 'osx'
+        : 'linux';
+    final arch = Platform.operatingSystemVersion.contains('arm')
+        ? 'aarch64'
+        : 'x86_64';
 
     final cpEntries = <String>[];
     for (final lib in merged.libraries) {
@@ -750,10 +907,16 @@ class LaunchService {
     String loggingArg = '';
     final loggingFile = merged.logging?.clientFile;
     if (loggingFile != null && merged.logging?.clientArgument != null) {
-      final logPath = p.join(gameDir, 'assets', 'log_configs',
-          loggingFile.path?.split('/').last ?? 'client-1.12.xml');
-      loggingArg = (merged.logging!.clientArgument!)
-          .replaceAll(r'${path}', logPath);
+      final logPath = p.join(
+        gameDir,
+        'assets',
+        'log_configs',
+        loggingFile.path?.split('/').last ?? 'client-1.12.xml',
+      );
+      loggingArg = (merged.logging!.clientArgument!).replaceAll(
+        r'${path}',
+        logPath,
+      );
     }
 
     return LaunchArgumentsBuilder.buildJvmArgs(
@@ -771,9 +934,11 @@ class LaunchService {
 
   DownloadSource _primarySource() {
     final settings = _ref.read(appSettingsProvider);
-    return DownloadSources.of(settings.downloadSourceIndex == 1
-        ? DownloadSourceKind.official
-        : DownloadSourceKind.bmclapi);
+    return DownloadSources.of(
+      settings.downloadSourceIndex == 1
+          ? DownloadSourceKind.official
+          : DownloadSourceKind.bmclapi,
+    );
   }
 
   // ---------------- 进程监控 ----------------
@@ -804,21 +969,26 @@ class LaunchService {
       versionId: versionId,
     );
 
-    _update(sessionId, (s) => s.copyWith(
-          phase: report.isNormalExit ? LaunchPhase.exited : LaunchPhase.failed,
-          message: report.isNormalExit
-              ? '游戏已退出'
-              : '游戏异常退出（代码 $exitCode）',
-          crashReport: report.isNormalExit ? null : report,
-        ));
+    _update(
+      sessionId,
+      (s) => s.copyWith(
+        phase: report.isNormalExit ? LaunchPhase.exited : LaunchPhase.failed,
+        message: report.isNormalExit ? '游戏已退出' : '游戏异常退出（代码 $exitCode）',
+        crashReport: report.isNormalExit ? null : report,
+      ),
+    );
 
     if (!report.isNormalExit) {
       // 保存崩溃报告
       final gameDir = _ref.read(appSettingsProvider).gameDirectory;
       final dir = Directory(p.join(gameDir, 'crash-reports', 'fmcl'));
       if (!dir.existsSync()) dir.createSync(recursive: true);
-      final f = File(p.join(dir.path,
-          'fmcl-game-${DateTime.now().millisecondsSinceEpoch}.log'));
+      final f = File(
+        p.join(
+          dir.path,
+          'fmcl-game-${DateTime.now().millisecondsSinceEpoch}.log',
+        ),
+      );
       await f.writeAsString(logs.join('\n'));
     }
     AppLogger.info('Launch', '游戏退出: code=$exitCode kind=${report.kind}');
@@ -849,8 +1019,8 @@ final launchStateProvider = NotifierProvider<LaunchStateNotifier, LaunchState>(
 /// 多实例会话列表 provider
 final launchSessionsProvider =
     NotifierProvider<LaunchSessionsNotifier, List<LaunchSession>>(
-  LaunchSessionsNotifier.new,
-);
+      LaunchSessionsNotifier.new,
+    );
 
 class LaunchSessionsNotifier extends Notifier<List<LaunchSession>> {
   @override

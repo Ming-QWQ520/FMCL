@@ -97,16 +97,24 @@ class ProcessSpawnConfig {
   /// 附加环境变量（在继承父进程环境之上）
   final Map<String, String> env;
 
+  /// 进程优先级（借鉴 HMCL 启动设置）："high" | "normal" | "low"，null 视为 normal
+  final String? processPriority;
+
   const ProcessSpawnConfig({
     required this.program,
     required this.args,
     required this.workingDir,
     required this.env,
+    this.processPriority,
   });
 
   @override
   int get hashCode =>
-      program.hashCode ^ args.hashCode ^ workingDir.hashCode ^ env.hashCode;
+      program.hashCode ^
+      args.hashCode ^
+      workingDir.hashCode ^
+      env.hashCode ^
+      processPriority.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -116,5 +124,6 @@ class ProcessSpawnConfig {
           program == other.program &&
           args == other.args &&
           workingDir == other.workingDir &&
-          env == other.env;
+          env == other.env &&
+          processPriority == other.processPriority;
 }

@@ -44,6 +44,11 @@ kotlin {
     }
 }
 
+dependencies {
+    // 运行时权限申请（ActivityCompat / ContextCompat）
+    implementation("androidx.core:core-ktx:1.13.1")
+}
+
 flutter {
     source = "../.."
 }

@@ -61,7 +61,7 @@ class ForgeInstaller extends BaseInstaller {
       final latest = promos['$gameVersion-latest'] as String?;
       return [
         if (recommended != null && recommended != latest) recommended,
-        if (latest != null) latest,
+        ?latest,
       ];
     } catch (e) {
       AppLogger.warn('Forge', '获取推荐版本失败: $e');

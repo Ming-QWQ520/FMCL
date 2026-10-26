@@ -212,7 +212,7 @@ class JavaService {
 }
 
 /// Java 服务实例
-final javaServiceProvider = Provider<JavaService>((ref) => JavaService(ref));
+final javaServiceProvider = Provider<JavaService>(JavaService.new);
 
 /// 目录下可执行文件名工具
 String javaExecutableIn(String javaHome) {

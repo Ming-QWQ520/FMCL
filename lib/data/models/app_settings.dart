@@ -39,6 +39,21 @@ class AppSettings {
   /// 启动后行为：0=保持启动器 1=隐藏 2=关闭
   final int launcherBehavior;
 
+  /// 进程优先级：0=普通 1=高 2=低（借鉴 HMCL 启动设置）
+  final int processPriority;
+
+  /// 启动后自动加入的服务器地址（host 或 host:port，空=不加入）
+  final String serverAddress;
+
+  /// 启动游戏前执行的自定义命令（借鉴 HMCL「启动前执行命令」，空=不执行）
+  final String preLaunchCommand;
+
+  /// 传给游戏进程的额外环境变量（每行一条 KEY=VALUE）
+  final List<String> launchEnvironment;
+
+  /// 包装命令（如 optirun / gamemoderun，空=不包装）
+  final String wrapperCommand;
+
   /// 全屏启动
   final bool fullscreen;
 
@@ -91,6 +106,11 @@ class AppSettings {
     this.gameArguments = '',
     this.javaPath = '',
     this.launcherBehavior = 1,
+    this.processPriority = 0,
+    this.serverAddress = '',
+    this.preLaunchCommand = '',
+    this.launchEnvironment = const [],
+    this.wrapperCommand = '',
     this.fullscreen = false,
     this.windowWidth = 0,
     this.windowHeight = 0,
@@ -118,6 +138,11 @@ class AppSettings {
     String? gameArguments,
     String? javaPath,
     int? launcherBehavior,
+    int? processPriority,
+    String? serverAddress,
+    String? preLaunchCommand,
+    List<String>? launchEnvironment,
+    String? wrapperCommand,
     bool? fullscreen,
     int? windowWidth,
     int? windowHeight,
@@ -144,6 +169,11 @@ class AppSettings {
       gameArguments: gameArguments ?? this.gameArguments,
       javaPath: javaPath ?? this.javaPath,
       launcherBehavior: launcherBehavior ?? this.launcherBehavior,
+      processPriority: processPriority ?? this.processPriority,
+      serverAddress: serverAddress ?? this.serverAddress,
+      preLaunchCommand: preLaunchCommand ?? this.preLaunchCommand,
+      launchEnvironment: launchEnvironment ?? this.launchEnvironment,
+      wrapperCommand: wrapperCommand ?? this.wrapperCommand,
       fullscreen: fullscreen ?? this.fullscreen,
       windowWidth: windowWidth ?? this.windowWidth,
       windowHeight: windowHeight ?? this.windowHeight,
@@ -162,59 +192,70 @@ class AppSettings {
   // ---------------- JSON ----------------
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
-        themeMode: json['themeMode'] as int? ?? 0,
-        backgroundImagePath: json['backgroundImagePath'] as String? ?? '',
-        backgroundOpacity: json['backgroundOpacity'] as int? ?? 45,
-        backgroundBlur: json['backgroundBlur'] as int? ?? 0,
-        gameDirectory:
-            json['gameDirectory'] as String? ?? '',
-        javaSearchPaths: (json['javaSearchPaths'] as List<dynamic>? ?? [])
-            .map((e) => e as String)
-            .toList(),
-        maxMemoryMb: json['maxMemoryMb'] as int? ?? 2048,
-        minMemoryMb: json['minMemoryMb'] as int? ?? 512,
-        jvmArguments: json['jvmArguments'] as String? ?? '',
-        gameArguments: json['gameArguments'] as String? ?? '',
-        javaPath: json['javaPath'] as String? ?? '',
-        launcherBehavior: json['launcherBehavior'] as int? ?? 1,
-        fullscreen: json['fullscreen'] as bool? ?? false,
-        windowWidth: json['windowWidth'] as int? ?? 0,
-        windowHeight: json['windowHeight'] as int? ?? 0,
-        downloadSourceIndex: json['downloadSourceIndex'] as int? ?? 0,
-        autoFallback: json['autoFallback'] as bool? ?? true,
-        concurrency: json['concurrency'] as int? ?? 32,
-        verifyFiles: json['verifyFiles'] as bool? ?? true,
-        versionIsolation: json['versionIsolation'] as bool? ?? true,
-        autoInstallJava: json['autoInstallJava'] as bool? ?? true,
-        lastAccountId: json['lastAccountId'] as String? ?? '',
-        lastVersionId: json['lastVersionId'] as String? ?? '',
-        onboarded: json['onboarded'] as bool? ?? false,
-      );
+    themeMode: json['themeMode'] as int? ?? 0,
+    backgroundImagePath: json['backgroundImagePath'] as String? ?? '',
+    backgroundOpacity: json['backgroundOpacity'] as int? ?? 45,
+    backgroundBlur: json['backgroundBlur'] as int? ?? 0,
+    gameDirectory: json['gameDirectory'] as String? ?? '',
+    javaSearchPaths: (json['javaSearchPaths'] as List<dynamic>? ?? [])
+        .map((e) => e as String)
+        .toList(),
+    maxMemoryMb: json['maxMemoryMb'] as int? ?? 2048,
+    minMemoryMb: json['minMemoryMb'] as int? ?? 512,
+    jvmArguments: json['jvmArguments'] as String? ?? '',
+    gameArguments: json['gameArguments'] as String? ?? '',
+    javaPath: json['javaPath'] as String? ?? '',
+    launcherBehavior: json['launcherBehavior'] as int? ?? 1,
+    processPriority: json['processPriority'] as int? ?? 0,
+    serverAddress: json['serverAddress'] as String? ?? '',
+    preLaunchCommand: json['preLaunchCommand'] as String? ?? '',
+    launchEnvironment: (json['launchEnvironment'] as List<dynamic>? ?? [])
+        .map((e) => e as String)
+        .toList(),
+    wrapperCommand: json['wrapperCommand'] as String? ?? '',
+    fullscreen: json['fullscreen'] as bool? ?? false,
+    windowWidth: json['windowWidth'] as int? ?? 0,
+    windowHeight: json['windowHeight'] as int? ?? 0,
+    downloadSourceIndex: json['downloadSourceIndex'] as int? ?? 0,
+    autoFallback: json['autoFallback'] as bool? ?? true,
+    concurrency: json['concurrency'] as int? ?? 32,
+    verifyFiles: json['verifyFiles'] as bool? ?? true,
+    versionIsolation: json['versionIsolation'] as bool? ?? true,
+    autoInstallJava: json['autoInstallJava'] as bool? ?? true,
+    lastAccountId: json['lastAccountId'] as String? ?? '',
+    lastVersionId: json['lastVersionId'] as String? ?? '',
+    onboarded: json['onboarded'] as bool? ?? false,
+  );
 
   Map<String, dynamic> toJson() => {
-        'themeMode': themeMode,
-        'backgroundImagePath': backgroundImagePath,
-        'backgroundOpacity': backgroundOpacity,
-        'backgroundBlur': backgroundBlur,
-        'gameDirectory': gameDirectory,
-        'javaSearchPaths': javaSearchPaths,
-        'maxMemoryMb': maxMemoryMb,
-        'minMemoryMb': minMemoryMb,
-        'jvmArguments': jvmArguments,
-        'gameArguments': gameArguments,
-        'javaPath': javaPath,
-        'launcherBehavior': launcherBehavior,
-        'fullscreen': fullscreen,
-        'windowWidth': windowWidth,
-        'windowHeight': windowHeight,
-        'downloadSourceIndex': downloadSourceIndex,
-        'autoFallback': autoFallback,
-        'concurrency': concurrency,
-        'verifyFiles': verifyFiles,
-        'versionIsolation': versionIsolation,
-        'autoInstallJava': autoInstallJava,
-        'lastAccountId': lastAccountId,
-        'lastVersionId': lastVersionId,
-        'onboarded': onboarded,
-      };
+    'themeMode': themeMode,
+    'backgroundImagePath': backgroundImagePath,
+    'backgroundOpacity': backgroundOpacity,
+    'backgroundBlur': backgroundBlur,
+    'gameDirectory': gameDirectory,
+    'javaSearchPaths': javaSearchPaths,
+    'maxMemoryMb': maxMemoryMb,
+    'minMemoryMb': minMemoryMb,
+    'jvmArguments': jvmArguments,
+    'gameArguments': gameArguments,
+    'javaPath': javaPath,
+    'launcherBehavior': launcherBehavior,
+    'processPriority': processPriority,
+    'serverAddress': serverAddress,
+    'preLaunchCommand': preLaunchCommand,
+    'launchEnvironment': launchEnvironment,
+    'wrapperCommand': wrapperCommand,
+    'fullscreen': fullscreen,
+    'windowWidth': windowWidth,
+    'windowHeight': windowHeight,
+    'downloadSourceIndex': downloadSourceIndex,
+    'autoFallback': autoFallback,
+    'concurrency': concurrency,
+    'verifyFiles': verifyFiles,
+    'versionIsolation': versionIsolation,
+    'autoInstallJava': autoInstallJava,
+    'lastAccountId': lastAccountId,
+    'lastVersionId': lastVersionId,
+    'onboarded': onboarded,
+  };
 }

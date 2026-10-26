@@ -118,7 +118,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                     File(bgPath),
                     fit: BoxFit.cover,
                     gaplessPlayback: true,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
                   ),
                 ),
               ),

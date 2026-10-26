@@ -74,7 +74,7 @@ class _VersionsPageState extends ConsumerState<VersionsPage> {
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
-                  onPressed: () => _openFolder(),
+                  onPressed: _openFolder,
                   icon: const Icon(Icons.folder_open_rounded, size: 18),
                   label: const Text('打开目录'),
                 ),

@@ -11,18 +11,17 @@ class AssetIndex {
   });
 
   factory AssetIndex.fromJson(Map<String, dynamic> json) => AssetIndex(
-        objects: (json['objects'] as Map<String, dynamic>? ?? {}).map(
-          (k, v) => MapEntry(k, AssetObject.fromJson(v as Map<String, dynamic>)),
-        ),
-        virtual: json['virtual'] as bool? ?? false,
-        mappings: json['map_to_resources'] == null
-            ? (json['mappings'] as Map<String, dynamic>? ?? {})
-            : {},
-      );
+    objects: (json['objects'] as Map<String, dynamic>? ?? {}).map(
+      (k, v) => MapEntry(k, AssetObject.fromJson(v as Map<String, dynamic>)),
+    ),
+    virtual: json['virtual'] as bool? ?? false,
+    mappings: json['map_to_resources'] == null
+        ? (json['mappings'] as Map<String, dynamic>? ?? {})
+        : {},
+  );
 
   /// 全部资源总大小
-  int get totalSize =>
-      objects.values.fold(0, (sum, o) => sum + o.size);
+  int get totalSize => objects.values.fold(0, (sum, o) => sum + o.size);
 }
 
 class AssetObject {
@@ -33,15 +32,13 @@ class AssetObject {
   const AssetObject({required this.hash, required this.size});
 
   factory AssetObject.fromJson(Map<String, dynamic> json) => AssetObject(
-        hash: json['hash'] as String,
-        size: json['size'] as int? ?? 0,
-      );
+    hash: json['hash'] as String,
+    size: json['size'] as int? ?? 0,
+  );
 
   /// 存储相对路径：objects/<hash前2位>/<hash>
-  String get storePath =>
-      'objects/${hash.substring(0, 2)}/$hash';
+  String get storePath => 'objects/${hash.substring(0, 2)}/$hash';
 
   /// 下载 URL 路径段
-  String get urlPath =>
-      '${hash.substring(0, 2)}/$hash';
+  String get urlPath => '${hash.substring(0, 2)}/$hash';
 }

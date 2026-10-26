@@ -49,7 +49,7 @@ class CustomTitleBar extends StatelessWidget {
           ),
           _WindowButton(
             icon: Icons.remove_rounded,
-            onPressed: () => windowManager.minimize(),
+            onPressed: windowManager.minimize,
           ),
           _WindowButton(
             icon: Icons.crop_square_rounded,
@@ -64,7 +64,7 @@ class CustomTitleBar extends StatelessWidget {
           _WindowButton(
             icon: Icons.close_rounded,
             isClose: true,
-            onPressed: () => windowManager.close(),
+            onPressed: windowManager.close,
           ),
         ],
       ),

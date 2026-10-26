@@ -111,7 +111,7 @@ class SectionHeader extends StatelessWidget {
             Expanded(child: Text(subtitle!, style: context.captionStyle)),
           ] else
             const Spacer(),
-          if (trailing != null) trailing!,
+          ?trailing,
         ],
       ),
     );
@@ -166,7 +166,7 @@ class SettingsRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          if (trailing != null) trailing!,
+          ?trailing,
         ],
       ),
     );

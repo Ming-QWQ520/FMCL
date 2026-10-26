@@ -23,7 +23,7 @@ class HttpService {
 
   late Dio _dio;
   AppSettings _settings = const AppSettings(gameDirectory: '');
-  int _timeoutSeconds = 20;
+  final int _timeoutSeconds = 20;
 
   void configure(AppSettings settings) {
     _settings = settings;

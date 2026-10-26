@@ -9,7 +9,9 @@ Flutter 构建精美界面 · Rust 驱动高性能核心
 [![Flutter](https://img.shields.io/badge/Flutter-3.47.5-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Rust](https://img.shields.io/badge/Rust-1.96.0-DEA584?logo=rust&logoColor=white)](https://rust-lang.org)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Android-lightgrey)](https://github.com/Ming-QWQ520/FMCL)
-[![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Android Build](https://github.com/Ming-QWQ520/FMCL/actions/workflows/android.yml/badge.svg)](https://github.com/Ming-QWQ520/FMCL/actions/workflows/android.yml)
+[![Windows Build](https://github.com/Ming-QWQ520/FMCL/actions/workflows/windows.yml/badge.svg)](https://github.com/Ming-QWQ520/FMCL/actions/workflows/windows.yml)
 
 </div>
 
@@ -146,7 +148,19 @@ flutter run -d windows    # 或 -d linux
 # 5. 构建
 flutter build windows     # Windows
 flutter build linux       # Linux
+flutter build apk         # Android（横屏预览版，含全部 ABI）
 ```
+
+### CI 自动编译
+
+推送至 `main` 后 GitHub Actions 自动构建（也可手动触发）：
+
+| 工作流 | 产物 | 说明 |
+|--------|------|------|
+| `android.yml` | `FMCL-0.1.0-android.apk` | 通用 release APK，可直接安装体验 UI 与联网功能 |
+| `windows.yml` | `FMCL-0.1.0-windows-x64.zip` | Windows 免安装压缩包，解压即用 |
+
+产物位于 Actions 运行页的 Artifacts 区。
 
 ### 测试与质量
 
@@ -159,8 +173,16 @@ cargo clippy --manifest-path rust/Cargo.toml   # Rust lint（0 警告）
 
 ## 📱 Android 支持
 
-Android 端目前为**预览状态**：界面可运行，游戏启动链路正在分阶段接入
-（内置 JRE 分发、SAF 存储权限、cargokit NDK 构建等）。
+Android 端目前为**横屏预览版**：界面可运行、联网功能（版本清单 / 下载 /
+微软与外置登录 / 服务器查询）可用；游戏启动链路正在分阶段接入
+（内置 JRE 分发、进程派生等）。
+
+已就绪的平台能力：
+
+- **横屏锁定**（sensorLandscape，跟随重力翻转）
+- **权限**：INTERNET / 存储（Android 11+ 引导「所有文件访问」授权页，
+  Android 9- 运行时申请）/ 媒体读取（Android 13+）
+- **CI 编译**：推送后 Actions 自动产出通用 APK（见上文 CI 表格）
 
 完整的 9 项 Android 适配路线图见 **[TODO.md](TODO.md)**（编号 A-01 ~ A-09），
 代码中对应的 `TODO(ANDROID)` 注释标记了每一处桩实现的位置。
@@ -185,7 +207,7 @@ FMCL 不内置共享的 Azure 凭据（安全考虑），使用微软登录需�
 
 ## 📄 许可证
 
-本项目基于 [GNU AGPL-3.0](LICENSE) 协议开源。任何基于本项目的修改版本（包括通过网络提供服务）都须以相同协议开源。
+本项目基于 [GNU GPL-3.0-only](LICENSE) 协议开源。任何基于本项目的修改与分发版本都须以相同协议（GPL-3.0-only）开源，并保留原始版权声明。
 
 Minecraft 是 Mojang Studios 的商标，本项目与 Mojang / Microsoft 无关联。本项目中的加载器图标、游戏相关素材等资源均归属 Minecraft 或对应加载器项目本身。
 

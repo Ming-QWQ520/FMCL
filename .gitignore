@@ -36,7 +36,7 @@ key.properties
 
 # 日志与运行时产物（本地测试用）
 *.log
-logs/
+/logs/
 
 # 系统文件
 .DS_Store

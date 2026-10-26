@@ -27,8 +27,7 @@ class SettingsPage extends ConsumerStatefulWidget {
 
 class _SettingsPageState extends ConsumerState<SettingsPage>
     with SingleTickerProviderStateMixin {
-  late final TabController _tab =
-      TabController(length: 5, vsync: this);
+  late final TabController _tab = TabController(length: 5, vsync: this);
 
   @override
   Widget build(BuildContext context) {
@@ -97,12 +96,13 @@ class _LaunchTab extends ConsumerWidget {
                 description: s.gameDirectory.isEmpty ? '未设置' : s.gameDirectory,
                 trailing: OutlinedButton(
                   onPressed: () async {
-                    final result = await FilePicker.platform
-                        .getDirectoryPath(dialogTitle: '选择游戏目录');
+                    final result = await FilePicker.platform.getDirectoryPath(
+                      dialogTitle: '选择游戏目录',
+                    );
                     if (result != null) {
-                      ref.read(appSettingsProvider.notifier).patch(
-                            (st) => st.copyWith(gameDirectory: result),
-                          );
+                      ref
+                          .read(appSettingsProvider.notifier)
+                          .patch((st) => st.copyWith(gameDirectory: result));
                     }
                   },
                   child: const Text('更改'),
@@ -129,16 +129,19 @@ class _LaunchTab extends ConsumerWidget {
                       label: '${s.maxMemoryMb} MB',
                       onChanged: (v) => ref
                           .read(appSettingsProvider.notifier)
-                          .patch((st) =>
-                              st.copyWith(maxMemoryMb: v.round())),
+                          .patch((st) => st.copyWith(maxMemoryMb: v.round())),
                     ),
                   ),
                   SizedBox(
                     width: 90,
-                    child: Text('${s.maxMemoryMb} MB',
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 14)),
+                    child: Text(
+                      '${s.maxMemoryMb} MB',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -232,8 +235,7 @@ class _LaunchTab extends ConsumerWidget {
                   ],
                   onChanged: (v) => ref
                       .read(appSettingsProvider.notifier)
-                      .patch((st) =>
-                          st.copyWith(launcherBehavior: v ?? 0)),
+                      .patch((st) => st.copyWith(launcherBehavior: v ?? 0)),
                 ),
               ),
               SettingsRow(
@@ -244,6 +246,122 @@ class _LaunchTab extends ConsumerWidget {
                   onChanged: (v) => ref
                       .read(appSettingsProvider.notifier)
                       .patch((st) => st.copyWith(fullscreen: v)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SectionHeader('进阶启动选项（借鉴 HMCL）'),
+              SettingsRow(
+                icon: Icons.speed_rounded,
+                title: '游戏进程优先级',
+                description: '高优先级可减少卡顿，低优先级保持桌面流畅',
+                trailing: DropdownButton<int>(
+                  value: s.processPriority,
+                  items: const [
+                    DropdownMenuItem(value: 0, child: Text('普通')),
+                    DropdownMenuItem(value: 1, child: Text('高')),
+                    DropdownMenuItem(value: 2, child: Text('低')),
+                  ],
+                  onChanged: (v) => ref
+                      .read(appSettingsProvider.notifier)
+                      .patch((st) => st.copyWith(processPriority: v ?? 0)),
+                ),
+              ),
+              SettingsRow(
+                icon: Icons.dns_rounded,
+                title: '启动后自动加入服务器',
+                description:
+                    '格式 host 或 host:port（1.20+ 用 quickPlay，旧版用 --server）',
+                trailing: const SizedBox(width: 0),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+                child: TextField(
+                  controller: TextEditingController(text: s.serverAddress),
+                  maxLines: 1,
+                  decoration: const InputDecoration(
+                    hintText: '例如 play.example.com:25565',
+                    isDense: true,
+                  ),
+                  onChanged: (v) => ref
+                      .read(appSettingsProvider.notifier)
+                      .patch((st) => st.copyWith(serverAddress: v.trim())),
+                ),
+              ),
+              SettingsRow(
+                icon: Icons.terminal_rounded,
+                title: '启动前执行命令',
+                description: '游戏启动前运行；失败将中止启动。可用 \$VERSION_ID / \$GAME_DIR',
+                trailing: const SizedBox(width: 0),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+                child: TextField(
+                  controller: TextEditingController(text: s.preLaunchCommand),
+                  maxLines: 1,
+                  decoration: const InputDecoration(
+                    hintText: '例如 echo 准备启动 \$VERSION_ID',
+                    isDense: true,
+                  ),
+                  onChanged: (v) => ref
+                      .read(appSettingsProvider.notifier)
+                      .patch((st) => st.copyWith(preLaunchCommand: v)),
+                ),
+              ),
+              SettingsRow(
+                icon: Icons.memory_rounded,
+                title: '游戏环境变量',
+                description: '每行一条 KEY=VALUE，传递给游戏进程',
+                trailing: const SizedBox(width: 0),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+                child: TextField(
+                  controller: TextEditingController(
+                    text: s.launchEnvironment.join('\n'),
+                  ),
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    hintText: 'JAVA_OPTS=...',
+                    isDense: true,
+                  ),
+                  onChanged: (v) => ref
+                      .read(appSettingsProvider.notifier)
+                      .patch(
+                        (st) => st.copyWith(
+                          launchEnvironment: v
+                              .split('\n')
+                              .map((e) => e.trim())
+                              .where((e) => e.isNotEmpty)
+                              .toList(),
+                        ),
+                      ),
+                ),
+              ),
+              SettingsRow(
+                icon: Icons.wrap_text_rounded,
+                title: '包装命令（wrapper）',
+                description: '以指定命令包装 Java，如 gamemoderun / optirun',
+                trailing: const SizedBox(width: 0),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+                child: TextField(
+                  controller: TextEditingController(text: s.wrapperCommand),
+                  maxLines: 1,
+                  decoration: const InputDecoration(
+                    hintText: '例如 gamemoderun',
+                    isDense: true,
+                  ),
+                  onChanged: (v) => ref
+                      .read(appSettingsProvider.notifier)
+                      .patch((st) => st.copyWith(wrapperCommand: v.trim())),
                 ),
               ),
             ],
@@ -289,8 +407,7 @@ class _DownloadTab extends ConsumerWidget {
                   selected: {s.downloadSourceIndex},
                   onSelectionChanged: (v) => ref
                       .read(appSettingsProvider.notifier)
-                      .patch((st) =>
-                          st.copyWith(downloadSourceIndex: v.first)),
+                      .patch((st) => st.copyWith(downloadSourceIndex: v.first)),
                 ),
               ),
               SettingsRow(
@@ -398,37 +515,49 @@ class _JavaTabState extends ConsumerState<_JavaTab> {
                         ? const SizedBox(
                             width: 14,
                             height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2))
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Icon(Icons.search_rounded, size: 18),
                     label: const Text('重新扫描'),
                   ),
                 ],
               ),
               if (_error != null)
-                Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               if (!_scanning && _javas.isEmpty && _error == null)
                 Text('未检测到 Java，请手动指定路径', style: context.captionStyle),
-              ..._javas.map((j) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(
-                      Icons.local_cafe_rounded,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    title: Text(
-                        'Java ${j.majorVersion}（${j.versionString}）'
-                        '${j.is64Bit ? '' : ' · 32位'}'),
-                    subtitle: Text(j.javaPath, style: const TextStyle(fontSize: 12)),
-                    trailing: s.javaPath == j.javaPath
-                        ? Chip(
-                            label: const Text('使用中',
-                                style: TextStyle(fontSize: 11)),
-                            visualDensity: VisualDensity.compact,
-                          )
-                        : null,
-                    onTap: () => ref.read(appSettingsProvider.notifier).patch(
-                          (st) => st.copyWith(javaPath: j.javaPath),
-                        ),
-                  )),
+              ..._javas.map(
+                (j) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    Icons.local_cafe_rounded,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  title: Text(
+                    'Java ${j.majorVersion}（${j.versionString}）'
+                    '${j.is64Bit ? '' : ' · 32位'}',
+                  ),
+                  subtitle: Text(
+                    j.javaPath,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  trailing: s.javaPath == j.javaPath
+                      ? Chip(
+                          label: const Text(
+                            '使用中',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        )
+                      : null,
+                  onTap: () => ref
+                      .read(appSettingsProvider.notifier)
+                      .patch((st) => st.copyWith(javaPath: j.javaPath)),
+                ),
+              ),
             ],
           ),
         ),
@@ -453,10 +582,13 @@ class _JavaTabState extends ConsumerState<_JavaTab> {
                           dialogTitle: '选择 java 可执行文件',
                         );
                         if (result != null) {
-                          ref.read(appSettingsProvider.notifier).patch(
-                                (st) =>
-                                    st.copyWith(javaPath: result.files.single.path ?? ''),
-                          );
+                          ref
+                              .read(appSettingsProvider.notifier)
+                              .patch(
+                                (st) => st.copyWith(
+                                  javaPath: result.files.single.path ?? '',
+                                ),
+                              );
                         }
                       },
                       child: const Text('选择文件'),
@@ -500,16 +632,18 @@ class _JavaAutoInstallCardState extends ConsumerState<_JavaAutoInstallCard> {
       _progress = null;
     });
     try {
-      final info = await ref.read(javaServiceProvider).installJava(
-        major,
-        onProgress: (phase, message, progress) {
-          if (!mounted) return;
-          setState(() {
-            _status = message;
-            _progress = progress;
-          });
-        },
-      );
+      final info = await ref
+          .read(javaServiceProvider)
+          .installJava(
+            major,
+            onProgress: (phase, message, progress) {
+              if (!mounted) return;
+              setState(() {
+                _status = message;
+                _progress = progress;
+              });
+            },
+          );
       if (!mounted) return;
       setState(() {
         _installing = false;
@@ -647,7 +781,9 @@ class _AppearanceTab extends ConsumerWidget {
                       onPressed: () async {
                         final path = await _pickAndCacheBackground();
                         if (path != null && context.mounted) {
-                          ref.read(appSettingsProvider.notifier).patch(
+                          ref
+                              .read(appSettingsProvider.notifier)
+                              .patch(
                                 (st) => st.copyWith(backgroundImagePath: path),
                               );
                         }
@@ -661,7 +797,9 @@ class _AppearanceTab extends ConsumerWidget {
                         tooltip: '移除背景',
                         onPressed: () => ref
                             .read(appSettingsProvider.notifier)
-                            .patch((st) => st.copyWith(backgroundImagePath: '')),
+                            .patch(
+                              (st) => st.copyWith(backgroundImagePath: ''),
+                            ),
                         icon: const Icon(Icons.delete_outline_rounded),
                       ),
                     ],
@@ -683,15 +821,18 @@ class _AppearanceTab extends ConsumerWidget {
                       label: '${s.backgroundOpacity}%',
                       onChanged: (v) => ref
                           .read(appSettingsProvider.notifier)
-                          .patch((st) =>
-                              st.copyWith(backgroundOpacity: v.round())),
+                          .patch(
+                            (st) => st.copyWith(backgroundOpacity: v.round()),
+                          ),
                     ),
                   ),
                 ),
                 SettingsRow(
                   icon: Icons.blur_on_rounded,
                   title: '背景模糊',
-                  description: s.backgroundBlur == 0 ? '关闭' : '${s.backgroundBlur}',
+                  description: s.backgroundBlur == 0
+                      ? '关闭'
+                      : '${s.backgroundBlur}',
                   trailing: SizedBox(
                     width: 220,
                     child: Slider(
@@ -699,11 +840,14 @@ class _AppearanceTab extends ConsumerWidget {
                       min: 0,
                       max: 50,
                       divisions: 10,
-                      label: s.backgroundBlur == 0 ? '关闭' : '${s.backgroundBlur}',
+                      label: s.backgroundBlur == 0
+                          ? '关闭'
+                          : '${s.backgroundBlur}',
                       onChanged: (v) => ref
                           .read(appSettingsProvider.notifier)
-                          .patch((st) =>
-                              st.copyWith(backgroundBlur: v.round())),
+                          .patch(
+                            (st) => st.copyWith(backgroundBlur: v.round()),
+                          ),
                     ),
                   ),
                 ),
@@ -729,7 +873,7 @@ class _AboutTab extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SectionHeader('${AppConstants.appFullName}'),
+              const SectionHeader(AppConstants.appFullName),
               Text(
                 '版本 ${AppConstants.appVersion} · '
                 'Flutter 3.47.5 · Rust 1.96.0',
@@ -741,15 +885,19 @@ class _AboutTab extends ConsumerWidget {
                 'Rust 下载引擎 + Flutter 界面，支持四款模组加载器与微软/外置登录。',
                 style: const TextStyle(fontSize: 13.5, height: 1.6),
               ),
+              const SizedBox(height: 6),
+              Text(
+                '本软件基于 GNU GPL-3.0-only 协议开源，'
+                '修改与分发须遵循同等协议并保留版权声明。',
+                style: context.captionStyle,
+              ),
               const SizedBox(height: 12),
               Row(
                 children: [
                   OutlinedButton.icon(
                     onPressed: () async {
                       await Process.start(
-                        Platform.isWindows
-                            ? 'cmd'
-                            : 'open',
+                        Platform.isWindows ? 'cmd' : 'open',
                         Platform.isWindows
                             ? ['/c', 'start', AppConstants.repoUrl]
                             : [AppConstants.repoUrl],
@@ -792,7 +940,8 @@ class _AboutTab extends ConsumerWidget {
               ),
               const SizedBox(height: 10),
               TextField(
-                onChanged: (v) => MicrosoftAuthService.configureClientId(v.trim()),
+                onChanged: (v) =>
+                    MicrosoftAuthService.configureClientId(v.trim()),
                 decoration: const InputDecoration(
                   hintText: 'Azure Client ID（仅保存在本会话）',
                 ),

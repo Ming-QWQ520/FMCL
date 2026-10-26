@@ -53,10 +53,10 @@ class GameAccount {
       DateTime.now().millisecondsSinceEpoch >= expiresAt - 60_000;
 
   String get typeLabel => switch (type) {
-        AccountType.offline => '离线',
-        AccountType.microsoft => '微软',
-        AccountType.yggdrasil => '外置',
-      };
+    AccountType.offline => '离线',
+    AccountType.microsoft => '微软',
+    AccountType.yggdrasil => '外置',
+  };
 
   GameAccount copyWith({
     String? accessToken,
@@ -80,28 +80,28 @@ class GameAccount {
   }
 
   factory GameAccount.fromJson(Map<String, dynamic> json) => GameAccount(
-        id: json['id'] as String,
-        type: AccountType.values.byName(json['type'] as String),
-        name: json['name'] as String,
-        accessToken: json['accessToken'] as String? ?? '',
-        uuid: json['uuid'] as String? ?? '',
-        yggdrasilServer: json['yggdrasilServer'] as String?,
-        profileId: json['profileId'] as String?,
-        expiresAt: json['expiresAt'] as int? ?? 0,
-        skinUrl: json['skinUrl'] as String?,
-        refreshToken: json['refreshToken'] as String?,
-      );
+    id: json['id'] as String,
+    type: AccountType.values.byName(json['type'] as String),
+    name: json['name'] as String,
+    accessToken: json['accessToken'] as String? ?? '',
+    uuid: json['uuid'] as String? ?? '',
+    yggdrasilServer: json['yggdrasilServer'] as String?,
+    profileId: json['profileId'] as String?,
+    expiresAt: json['expiresAt'] as int? ?? 0,
+    skinUrl: json['skinUrl'] as String?,
+    refreshToken: json['refreshToken'] as String?,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'type': type.name,
-        'name': name,
-        'accessToken': accessToken,
-        'uuid': uuid,
-        if (yggdrasilServer != null) 'yggdrasilServer': yggdrasilServer,
-        if (profileId != null) 'profileId': profileId,
-        'expiresAt': expiresAt,
-        if (skinUrl != null) 'skinUrl': skinUrl,
-        if (refreshToken != null) 'refreshToken': refreshToken,
-      };
+    'id': id,
+    'type': type.name,
+    'name': name,
+    'accessToken': accessToken,
+    'uuid': uuid,
+    if (yggdrasilServer != null) 'yggdrasilServer': yggdrasilServer,
+    if (profileId != null) 'profileId': profileId,
+    'expiresAt': expiresAt,
+    if (skinUrl != null) 'skinUrl': skinUrl,
+    if (refreshToken != null) 'refreshToken': refreshToken,
+  };
 }

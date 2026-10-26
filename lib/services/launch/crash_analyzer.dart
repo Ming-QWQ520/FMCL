@@ -20,7 +20,8 @@ class CrashAnalyzer {
         'class file version',
         'IncompatibleClassChangeError',
       ],
-      explanation: '当前使用的 Java 版本与该 Minecraft 版本不匹配。\n'
+      explanation:
+          '当前使用的 Java 版本与该 Minecraft 版本不匹配。\n'
           '• 1.20.5+ 需要 Java 21\n• 1.18~1.20.4 需要 Java 17\n'
           '• 1.17 需要 Java 16/17\n• 1.12~1.16 需要 Java 8/11',
       suggestions: [
@@ -60,7 +61,8 @@ class CrashAnalyzer {
         'NoSuchMethodError',
         'NoClassDefFoundError',
       ],
-      explanation: '日志中检测到模组相关异常。常见原因：\n'
+      explanation:
+          '日志中检测到模组相关异常。常见原因：\n'
           '• 模组与游戏版本不匹配\n• 缺少前置模组（Fabric API / Forge 前置）\n'
           '• 两个模组冲突',
       suggestions: [
@@ -105,10 +107,7 @@ class CrashAnalyzer {
           '在版本管理中执行「补全文件」，FMCL 会重新解压本地库。',
           actionId: 'repair_version',
         ),
-        const FixSuggestion(
-          '更新显卡驱动',
-          'LWJGL 依赖 OpenGL 3.2+，请确保显卡驱动为最新版本。',
-        ),
+        const FixSuggestion('更新显卡驱动', 'LWJGL 依赖 OpenGL 3.2+，请确保显卡驱动为最新版本。'),
       ],
     ),
     CrashPattern(
@@ -167,7 +166,8 @@ class CrashAnalyzer {
     return CrashReport(
       kind: 'unknown',
       title: '游戏异常退出（代码 $exitCode）',
-      explanation: 'FMCL 未能自动识别该崩溃的具体原因。\n'
+      explanation:
+          'FMCL 未能自动识别该崩溃的具体原因。\n'
           '可尝试以下通用方案，或将完整日志提交到项目仓库反馈。',
       suggestions: const [
         FixSuggestion(
@@ -245,11 +245,12 @@ class CrashReport {
 Future<String?> findLatestCrashReport(String gameDir) async {
   final dir = Directory('$gameDir/crash-reports');
   if (!dir.existsSync()) return null;
-  final files = dir
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.txt'))
-      .toList()
-    ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+  final files =
+      dir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.txt'))
+          .toList()
+        ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
   return files.firstOrNull?.path;
 }

@@ -1,0 +1,69 @@
+name: Android Build
+
+# FMCL Android 端编译（横屏预览版）：
+# - 产出通用 release APK（含全部 ABI，可直接安装体验 UI 与联网功能）
+# - Rust 后端经 cargokit 为各 ABI 交叉编译（flutter_rust_bridge）
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build APK (universal)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      # 与开发环境一致的 Flutter / pub 国内镜像
+      FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+      PUB_HOSTED_URL: https://pub.flutter-io.cn
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # cargokit 编译 Rust 动态库需要 JDK / Android SDK / NDK
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Rust 1.96.0
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Set up Flutter 3.47.5
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      # CI 环境默认未接受 SDK 许可；NDK / 构建工具按需自动安装
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Build universal APK
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/FMCL-0.1.0-android.apk
+          ls -la dist
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FMCL-0.1.0-android
+          path: dist/FMCL-0.1.0-android.apk
+          if-no-files-found: error
