@@ -252,10 +252,25 @@ class Library {
         : ExtractRule.fromJson(json['extract'] as Map<String, dynamic>),
   );
 
-  /// maven 坐标: group:artifact:version[:classifier]
-  static (String group, String artifact, String version, String? classifier)
+  /// maven 坐标: group:artifact:version[:classifier][@ext]
+  ///
+  /// 支持 Forge 安装器的 @ext 记法（如
+  /// `de.oceanlabs.mcp:mcp_config:1.20.1-...@zip`、`...:mappings@txt`）。
+  static (String group, String artifact, String version, String? classifier,
+      String ext)
   parseMaven(String name) {
-    final segs = name.split(':');
+    // 拆分 @ext 后缀（最后一个 @，且不与坐标段落冲突）
+    var base = name;
+    var ext = 'jar';
+    final at = base.lastIndexOf('@');
+    if (at > 0) {
+      final e = base.substring(at + 1);
+      if (e.isNotEmpty && !e.contains(':') && _isSafeExt(e)) {
+        ext = e;
+        base = base.substring(0, at);
+      }
+    }
+    final segs = base.split(':');
     final group = segs[0];
     final artifact = segs[1];
     final version = segs[2];
@@ -268,20 +283,20 @@ class Library {
         classifier = parts[1];
       }
     }
-    return (group, artifact, version, classifier);
+    return (group, artifact, version, classifier, ext);
+  }
+
+  static bool _isSafeExt(String ext) {
+    return ext.length <= 8 &&
+        ext.codeUnits.every((c) =>
+            (c >= 0x61 && c <= 0x7A) || (c >= 0x30 && c <= 0x39));
   }
 
   /// 相对路径（maven 布局）
   String get path {
-    final (g, a, v, c) = parseMaven(name);
-    final ext = _extOf(g);
+    final (g, a, v, c, ext) = parseMaven(name);
     final fileName = c == null ? '$a-$v.$ext' : '$a-$v-$c.$ext';
     return '${g.replaceAll('.', '/')}/$a/$v/$fileName';
-  }
-
-  static String _extOf(String group) {
-    // Forge/NeoForge 特殊库为 jar；natives 为 jar；全部默认 jar
-    return 'jar';
   }
 
   /// 按当前平台取 natives 分类器名（如 natives-windows）

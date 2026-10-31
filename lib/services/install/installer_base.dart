@@ -44,8 +44,8 @@ abstract class BaseInstaller {
     if (segs.length < 3) {
       throw ParseException('非法 maven 坐标: $coord');
     }
-    final (g, a, v, c) = Library.parseMaven(coord);
-    final file = c == null ? '$a-$v.jar' : '$a-$v-$c.jar';
+    final (g, a, v, c, ext) = Library.parseMaven(coord);
+    final file = c == null ? '$a-$v.$ext' : '$a-$v-$c.$ext';
     return '${g.replaceAll('.', '/')}/$a/$v/$file';
   }
 

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' show sha1;
+
 import '../../core/constants/app_constants.dart';
 import '../../core/error/app_exception.dart';
 import '../../core/logger/app_logger.dart';
@@ -168,12 +170,28 @@ class YggdrasilAuthService {
     }
   }
 
-  /// 下载 authlib-injector jar（返回字节，由调用方落盘）
+  /// 下载 authlib-injector jar（返回字节，由调用方落盘）。
+  ///
+  /// 源顺序（对齐 PCL 的容灾策略）：
+  /// 1. 官方 artifact 清单 authlib-injector.yushi.moe（带 SHA1 校验）
+  /// 2. GitHub Releases（yushijinhun/authlib-injector）回退
   static Future<({List<int> bytes, String version, String sha1})>
       fetchAuthlibInjector() async {
+    try {
+      return await _fetchAuthlibInjectorOfficial();
+    } catch (e) {
+      AppLogger.warn('Yggdrasil', 'authlib-injector 官方源失败，回退 GitHub: $e');
+      return _fetchAuthlibInjectorGithub();
+    }
+  }
+
+  static Future<({List<int> bytes, String version, String sha1})>
+      _fetchAuthlibInjectorOfficial() async {
     final client = HttpClient()..userAgent = AppConstants.userAgent;
     try {
-      final req = await client.getUrl(Uri.parse(AppConstants.authlibInjectorUrl));
+      final req = await client
+          .getUrl(Uri.parse(AppConstants.authlibInjectorUrl))
+          .timeout(const Duration(seconds: 20));
       final resp = await req.close();
       final meta = jsonDecode(await resp.transform(utf8.decoder).join())
           as Map<String, dynamic>;
@@ -181,20 +199,87 @@ class YggdrasilAuthService {
       final sha1 = meta['sha1'] as String;
       final version = meta['version'] as String;
 
-      final jarReq = await client.getUrl(Uri.parse(url));
-      final jarResp = await jarReq.close();
-      final bytes = <int>[];
-      await for (final chunk in jarResp) {
-        bytes.addAll(chunk);
+      final bytes = await _downloadBytes(client, url);
+      // SHA1 校验（对齐 PCL：不匹配视为下载失败）
+      final actual = sha1Hex(bytes);
+      if (actual.toLowerCase() != sha1.toLowerCase()) {
+        throw NetworkException('authlib-injector SHA1 校验失败',
+            technicalDetail: '期望 $sha1 实际 $actual');
       }
       return (bytes: bytes, version: version, sha1: sha1);
-    } catch (e) {
-      throw NetworkException('下载 authlib-injector 失败',
-          technicalDetail: e.toString());
     } finally {
       client.close(force: true);
     }
   }
+
+  static Future<({List<int> bytes, String version, String sha1})>
+      _fetchAuthlibInjectorGithub() async {
+    final client = HttpClient()..userAgent = AppConstants.userAgent;
+    try {
+      final req = await client
+          .getUrl(Uri.parse(
+              'https://api.github.com/repos/yushijinhun/authlib-injector/releases/latest'))
+          .timeout(const Duration(seconds: 20));
+      final resp = await req.close();
+      if (resp.statusCode != 200) {
+        throw NetworkException('GitHub Releases 查询失败 (HTTP ${resp.statusCode})');
+      }
+      final rel = jsonDecode(await resp.transform(utf8.decoder).join())
+          as Map<String, dynamic>;
+      final version = (rel['tag_name'] as String? ?? '').replaceFirst('v', '');
+      final assets = (rel['assets'] as List? ?? []).whereType<Map>().toList();
+      final jarAsset = assets.firstWhere(
+        (a) => (a['name'] as String? ?? '').endsWith('.jar'),
+        orElse: () => throw const NetworkException('GitHub Release 缺少 jar 资产'),
+      );
+      final jarUrl = jarAsset['browser_download_url'] as String;
+      final bytes = await _downloadBytes(client, jarUrl);
+      // sha1 校验值（可能存在 <jar>.sha1 资产，缺失时跳过校验）
+      var sha1 = '';
+      final shaAsset = assets.where((a) =>
+          (a['name'] as String? ?? '') == '${jarAsset['name']}.sha1').toList();
+      if (shaAsset.isNotEmpty) {
+        try {
+          final shaBytes = await _downloadBytes(
+              client, shaAsset.first['browser_download_url'] as String);
+          sha1 = utf8.decode(shaBytes).trim();
+          final actual = sha1Hex(bytes);
+          if (sha1.isNotEmpty &&
+              actual.toLowerCase() != sha1.toLowerCase()) {
+            throw NetworkException('authlib-injector SHA1 校验失败',
+                technicalDetail: '期望 $sha1 实际 $actual');
+          }
+        } on NetworkException {
+          rethrow;
+        } catch (_) {
+          sha1 = '';
+        }
+      }
+      AppLogger.info('Yggdrasil',
+          'authlib-injector 已从 GitHub 获取: v$version (${bytes.length} 字节)');
+      return (bytes: bytes, version: version, sha1: sha1);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  static Future<List<int>> _downloadBytes(
+      HttpClient client, String url) async {
+    final jarReq = await client
+        .getUrl(Uri.parse(url))
+        .timeout(const Duration(seconds: 30));
+    final jarResp = await jarReq.close();
+    if (jarResp.statusCode != 200) {
+      throw NetworkException('下载失败 (HTTP ${jarResp.statusCode}): $url');
+    }
+    final bytes = <int>[];
+    await for (final chunk in jarResp) {
+      bytes.addAll(chunk);
+    }
+    return bytes;
+  }
+
+  static String sha1Hex(List<int> bytes) => sha1.convert(bytes).toString();
 }
 
 class YggdrasilServerMeta {

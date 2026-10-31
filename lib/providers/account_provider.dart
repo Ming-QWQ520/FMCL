@@ -43,15 +43,9 @@ class AccountsState {
 class AccountsNotifier extends Notifier<AccountsState> {
   @override
   AccountsState build() {
-    _load();
-    return const AccountsState();
-  }
-
-  static const String _storageKey = 'fmcl.accounts';
-  static const String _currentKey = 'fmcl.current_account';
-
-  Future<void> _load() async {
-    final prefs = ref.read(sharedPreferencesProvider);
+    // 同步加载（修复：build 未返回前在 _load 里写 state 触发
+    // "Tried to read the state of an uninitialized provider"）
+    final prefs = ref.watch(sharedPreferencesProvider);
     final raw = prefs.getString(_storageKey);
     if (raw != null) {
       try {
@@ -59,12 +53,16 @@ class AccountsNotifier extends Notifier<AccountsState> {
             .map((e) => GameAccount.fromJson(e as Map<String, dynamic>))
             .toList();
         final current = prefs.getString(_currentKey) ?? '';
-        state = state.copyWith(accounts: list, currentId: current);
+        return AccountsState(accounts: list, currentId: current);
       } catch (e) {
         AppLogger.warn('Accounts', '账户数据损坏: $e');
       }
     }
+    return const AccountsState();
   }
+
+  static const String _storageKey = 'fmcl.accounts';
+  static const String _currentKey = 'fmcl.current_account';
 
   Future<void> _persist() async {
     final prefs = ref.read(sharedPreferencesProvider);

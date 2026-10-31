@@ -338,6 +338,10 @@ fn rename_atomic(from: &Path, to: &Path) -> Result<()> {
 }
 
 fn verify_existing(item: &DownloadItem) -> Result<bool> {
+    // 文件不存在一律视为未完成（即使无校验元数据）
+    if !Path::new(&item.save_path).exists() {
+        return Ok(false);
+    }
     if item.expected_sha1.is_none() && item.expected_size.is_none() {
         return Ok(true);
     }

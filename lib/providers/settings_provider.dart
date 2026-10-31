@@ -27,17 +27,22 @@ class AppSettingsNotifier extends Notifier<AppSettings> {
   AppSettings build() {
     final prefs = ref.read(sharedPreferencesProvider);
     final raw = prefs.getString(_key);
+    AppSettings loaded;
     if (raw == null) {
-      return _defaults();
+      loaded = _defaults();
+    } else {
+      try {
+        loaded = AppSettings.fromJson(
+          jsonDecode(raw) as Map<String, dynamic>,
+        );
+      } catch (e) {
+        AppLogger.warn('Settings', '设置解析失败，使用默认值: $e');
+        loaded = _defaults();
+      }
     }
-    try {
-      return AppSettings.fromJson(
-        jsonDecode(raw) as Map<String, dynamic>,
-      );
-    } catch (e) {
-      AppLogger.warn('Settings', '设置解析失败，使用默认值: $e');
-      return _defaults();
-    }
+    // 启动即配置 HTTP 客户端（下载源/超时随设置生效），避免早期请求使用默认源
+    HttpService.I.configure(loaded);
+    return loaded;
   }
 
   static const String _key = 'fmcl.app_settings';

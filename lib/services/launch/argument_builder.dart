@@ -93,8 +93,8 @@ class LaunchArgumentsBuilder {
   }) {
     final args = <String>[];
 
-    // 基础内存参数
-    args.add('-Xmn${minMemoryMb}m');
+    // 基础内存参数（对齐 PCL2/HMCL：-Xms 初始堆 + -Xmx 最大堆）
+    args.add('-Xms${minMemoryMb}m');
     args.add('-Xmx${maxMemoryMb}m');
 
     // 用户自定义 JVM 参数（置于最前部分，允许覆盖默认）

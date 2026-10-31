@@ -206,15 +206,48 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
         username: userCtrl.text.trim(),
         password: passCtrl.text,
       );
+      // 对齐 PCL：多角色时弹出选择列表
+      String profileId = session.profileId;
+      String profileName = session.profileName;
+      if (session.availableProfiles.length > 1) {
+        if (!mounted) return;
+        final selected = await showDialog<YggdrasilProfile>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('选择角色'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: session.availableProfiles
+                  .map((p) => ListTile(
+                        leading: CircleAvatar(
+                          child: Text(p.name.characters.first.toUpperCase()),
+                        ),
+                        title: Text(p.name),
+                        subtitle: Text(p.id),
+                        onTap: () => Navigator.pop(ctx, p),
+                      ))
+                  .toList(),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('取消')),
+            ],
+          ),
+        );
+        if (selected == null) return;
+        profileId = selected.id;
+        profileName = selected.name;
+      }
       await ref.read(accountsProvider.notifier).addYggdrasilAccount(
             serverUrl: meta.apiRoot,
-            name: session.profileName,
+            name: profileName,
             accessToken: session.accessToken,
-            uuid: session.profileId,
-            profileId: session.profileId,
+            uuid: profileId,
+            profileId: profileId,
             expiresAt: 0,
           );
-      _snack('外置登录成功：${session.profileName} @ ${meta.serverName}');
+      _snack('外置登录成功：$profileName @ ${meta.serverName}');
     } on AppException catch (e) {
       _snack(e.userMessage, error: true);
     } finally {

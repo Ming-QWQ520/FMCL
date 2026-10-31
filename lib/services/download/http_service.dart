@@ -21,13 +21,18 @@ class HttpService {
   static final HttpService instance = HttpService._();
   static HttpService get I => instance;
 
-  late Dio _dio;
+  /// 懒初始化（修复启动早期请求触发
+  /// LateInitializationError: _dio has not been initialized）。
+  ///
+  /// 在 [configure] 被调用前，任何请求使用默认配置的客户端兜底。
+  Dio? _dioInstance;
   AppSettings _settings = const AppSettings(gameDirectory: '');
   final int _timeoutSeconds = 20;
 
-  void configure(AppSettings settings) {
-    _settings = settings;
-    _dio = Dio(BaseOptions(
+  Dio get _dio => _dioInstance ??= _buildDio();
+
+  Dio _buildDio() {
+    return Dio(BaseOptions(
       connectTimeout: Duration(seconds: _timeoutSeconds),
       receiveTimeout: const Duration(seconds: 60),
       sendTimeout: const Duration(seconds: 30),
@@ -37,6 +42,11 @@ class HttpService {
       },
       validateStatus: (code) => code != null && code < 500,
     ));
+  }
+
+  void configure(AppSettings settings) {
+    _settings = settings;
+    _dioInstance = _buildDio();
   }
 
   Dio get dio => _dio;

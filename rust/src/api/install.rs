@@ -685,16 +685,31 @@ fn collect_lib_items(libs: Option<&Value>, game_dir: &Path, bmclapi_first: bool)
     items
 }
 
-/// maven 坐标 → 相对路径（group:artifact:version[:classifier]）
+/// maven 坐标 → 相对路径（group:artifact:version[:classifier][@ext]）
+///
+/// 支持 Forge 安装器的 @ext 记法：
+/// - `de.oceanlabs.mcp:mcp_config:1.20.1-...@zip` → `.../mcp_config-1.20.1-....zip`
+/// - `...:mcp_config:1.20.1-...:mappings@txt` → `.../mcp_config-...-mappings.txt`
 fn coord_to_path(coord: &str) -> Option<String> {
-    let segs: Vec<&str> = coord.split(':').collect();
+    // 拆分 @ext 后缀（最后一个 @，ext 仅允许小写字母/数字，避免误伤含 @ 的怪异版本号）
+    let (base, ext) = match coord.rsplit_once('@') {
+        Some((b, e))
+            if !e.is_empty()
+                && e.len() <= 8
+                && e.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) =>
+        {
+            (b, e)
+        }
+        _ => (coord, "jar"),
+    };
+    let segs: Vec<&str> = base.split(':').collect();
     if segs.len() < 3 {
         return None;
     }
     let (g, a, v) = (segs[0], segs[1], segs[2]);
     let file = match segs.get(3) {
-        Some(c) if !c.is_empty() => format!("{a}-{v}-{c}.jar"),
-        _ => format!("{a}-{v}.jar"),
+        Some(c) if !c.is_empty() => format!("{a}-{v}-{c}.{ext}"),
+        _ => format!("{a}-{v}.{ext}"),
     };
     Some(format!("{}/{}/{}/{}", g.replace('.', "/"), a, v, file))
 }
@@ -862,13 +877,10 @@ async fn install_forgelike(
 
     // MOJMAPS 特例：从原版 client_mappings 下载映射
     if let Some(mojmaps) = profile.pointer("/data/MOJMAPS/client").and_then(|v| v.as_str()) {
-        let coord = mojmaps
-            .trim_matches(|c| c == '[' || c == ']')
-            .split('@')
-            .next()
-            .unwrap_or("");
+        // 完整坐标（含 @txt 记法）直接交给 coord_to_path，
+        // 保证与 resolve_profile_data / 处理器参数中的路径推导完全一致
+        let coord = mojmaps.trim_matches(|c| c == '[' || c == ']');
         if let Some(rel) = coord_to_path(coord) {
-            let rel = rel.replace(".jar", ".txt");
             let save = game_dir.join("libraries").join(&rel);
             if !save.exists() {
                 if let Ok(vanilla) = load_vanilla_json(client, req).await {
