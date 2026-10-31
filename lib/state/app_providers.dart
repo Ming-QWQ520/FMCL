@@ -428,7 +428,7 @@ final launchSessionsProvider =
 // 安装任务（版本安装 / 补全 / 整合包）
 // ---------------------------------------------------------------------------
 
-/// 安装任务状态（进度对话框）
+/// 安装任务状态（进度对话框 + 下载详情页）
 class InstallTaskState {
   final String title;
   final String phase;
@@ -436,6 +436,16 @@ class InstallTaskState {
   final double progress;
   final bool running;
   final String? error;
+  /// 步骤列表（里程碑去重后的标签，当前步骤 = 最后一个）
+  final List<String> steps;
+  /// 实时速度（字节/秒，-1 = 尚未测得）
+  final int speedBps;
+  /// 当前批次已完成字节
+  final int bytesDone;
+  /// 当前批次总字节（0 = 未知）
+  final int bytesTotal;
+  /// 当前批次尚未完成的文件名
+  final List<String> remaining;
 
   const InstallTaskState({
     this.title = '',
@@ -444,6 +454,11 @@ class InstallTaskState {
     this.progress = 0,
     this.running = false,
     this.error,
+    this.steps = const [],
+    this.speedBps = -1,
+    this.bytesDone = 0,
+    this.bytesTotal = 0,
+    this.remaining = const [],
   });
 
   InstallTaskState copyWith({
@@ -453,6 +468,11 @@ class InstallTaskState {
     double? progress,
     bool? running,
     String? error,
+    List<String>? steps,
+    int? speedBps,
+    int? bytesDone,
+    int? bytesTotal,
+    List<String>? remaining,
   }) {
     return InstallTaskState(
       title: title ?? this.title,
@@ -461,30 +481,110 @@ class InstallTaskState {
       progress: progress ?? this.progress,
       running: running ?? this.running,
       error: error,
+      steps: steps ?? this.steps,
+      speedBps: speedBps ?? this.speedBps,
+      bytesDone: bytesDone ?? this.bytesDone,
+      bytesTotal: bytesTotal ?? this.bytesTotal,
+      remaining: remaining ?? this.remaining,
     );
   }
 }
 
+/// 事件流的步骤/速度聚合状态（Notifier 内部可变，避免污染 state 复制）
+class _InstallAggregator {
+  final List<String> steps = [];
+  int lastBytes = 0;
+  DateTime lastTime = DateTime.now();
+  int lastBatchKey = -1;
+
+  /// 从消息提取里程碑标签：剥掉计数括号「（5/120）」与处理器序号
+  static String _baseOf(String phase, String message) {
+    var m = message.trim();
+    if (m.isEmpty) return phase;
+    m = m.replaceFirst(RegExp('（[^）]*）'), '');
+    m = m.replaceFirst(RegExp(r'\([^)]*\)'), '');
+    if (phase == 'process') return '运行安装处理器';
+    return m;
+  }
+
+  void apply(rust.InstallProgressEvent ev) {
+    // ---- 步骤（里程碑去重） ----
+    final base = _baseOf(ev.phase, ev.message);
+    if (steps.isEmpty || steps.last != base) {
+      if (steps.length >= 60) steps.removeAt(0);
+      steps.add(base);
+    }
+    // ---- 速度（批次切换时重置基线） ----
+    final batchKey = Object.hash(ev.filesTotal, ev.bytesTotal, base);
+    if (batchKey != lastBatchKey) {
+      lastBatchKey = batchKey;
+      lastBytes = ev.bytesDone;
+      lastTime = DateTime.now();
+    } else if (ev.bytesDone > lastBytes) {
+      final now = DateTime.now();
+      final dt = now.difference(lastTime).inMilliseconds;
+      if (dt >= 200) {
+        _speedBps = ((ev.bytesDone - lastBytes) * 1000 / dt).round();
+        lastBytes = ev.bytesDone;
+        lastTime = now;
+      }
+    } else if (ev.bytesDone < lastBytes) {
+      lastBytes = ev.bytesDone;
+      lastTime = DateTime.now();
+      _speedBps = -1;
+    }
+    _bytesDone = ev.bytesDone;
+    _bytesTotal = ev.bytesTotal;
+    _remaining = ev.remaining;
+  }
+
+  int _speedBps = -1;
+  int get speedBps => _speedBps;
+  int _bytesDone = 0;
+  int get bytesDone => _bytesDone;
+  int _bytesTotal = 0;
+  int get bytesTotal => _bytesTotal;
+  List<String> _remaining = const [];
+  List<String> get remaining => _remaining;
+}
+
 class InstallTaskNotifier extends Notifier<InstallTaskState> {
+  final _agg = _InstallAggregator();
+
   @override
   InstallTaskState build() => const InstallTaskState();
 
-  void reset() => state = const InstallTaskState();
+  void reset() {
+    _agg.steps.clear();
+    state = const InstallTaskState();
+  }
+
+  /// 按事件流聚合出完整任务状态
+  InstallTaskState _absorb(InstallTaskState base, rust.InstallProgressEvent ev) {
+    _agg.apply(ev);
+    return base.copyWith(
+      phase: ev.phase,
+      message: ev.message,
+      progress: ev.progress,
+      running:
+          ev.phase != 'done' &&
+          ev.phase != 'failed' &&
+          ev.phase != 'cancelled',
+      steps: List.unmodifiable(_agg.steps),
+      speedBps: _agg.speedBps,
+      bytesDone: _agg.bytesDone,
+      bytesTotal: _agg.bytesTotal,
+      remaining: List.unmodifiable(_agg.remaining),
+    );
+  }
 
   /// 合并安装（原版+加载器，Rust 全量管线）
   Future<void> install(rust.InstallRequest request, String title) async {
+    _agg.steps.clear();
     state = InstallTaskState(title: title, running: true, message: '准备安装...');
     try {
       await for (final ev in rust.installCombined(request: request)) {
-        state = state.copyWith(
-          phase: ev.phase,
-          message: ev.message,
-          progress: ev.progress,
-          running:
-              ev.phase != 'done' &&
-              ev.phase != 'failed' &&
-              ev.phase != 'cancelled',
-        );
+        state = _absorb(state, ev);
         if (ev.phase == 'failed') {
           state = state.copyWith(error: ev.message, running: false);
         }
@@ -501,6 +601,7 @@ class InstallTaskNotifier extends Notifier<InstallTaskState> {
     required bool bmclapiFirst,
     required int concurrency,
   }) async {
+    _agg.steps.clear();
     state = InstallTaskState(
       title: '补全文件 - $versionId',
       running: true,
@@ -515,15 +616,7 @@ class InstallTaskNotifier extends Notifier<InstallTaskState> {
         sessionId:
             'complete-$versionId-${DateTime.now().millisecondsSinceEpoch}',
       )) {
-        state = state.copyWith(
-          phase: ev.phase,
-          message: ev.message,
-          progress: ev.progress,
-          running:
-              ev.phase != 'done' &&
-              ev.phase != 'failed' &&
-              ev.phase != 'cancelled',
-        );
+        state = _absorb(state, ev);
         if (ev.phase == 'failed') {
           state = state.copyWith(error: ev.message, running: false);
         }

@@ -80,6 +80,37 @@ pub struct InstallProgressEvent {
     pub message: String,
     /// 总进度 0.0 ~ 1.0
     pub progress: f64,
+    /// 当前批次已完成字节（批次切换时归零，Dart 侧以增量算速度）
+    #[serde(default)]
+    pub bytes_done: i64,
+    /// 当前批次总字节（0 = 未知，UI 隐藏字节数）
+    #[serde(default)]
+    pub bytes_total: i64,
+    /// 当前批次已完成文件数
+    #[serde(default)]
+    pub files_done: i32,
+    /// 当前批次总文件数
+    #[serde(default)]
+    pub files_total: i32,
+    /// 当前批次尚未完成的文件名（按完成顺序移除，供「剩余文件」列表）
+    #[serde(default)]
+    pub remaining: Vec<String>,
+}
+
+impl InstallProgressEvent {
+    /// 基础事件（非下载阶段：无字节/文件统计）
+    pub fn basic(phase: &str, message: &str, progress: f64) -> Self {
+        Self {
+            phase: phase.into(),
+            message: message.into(),
+            progress: progress.clamp(0.0, 1.0),
+            bytes_done: 0,
+            bytes_total: 0,
+            files_done: 0,
+            files_total: 0,
+            remaining: Vec::new(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +220,7 @@ pub(crate) async fn download_with_fallback(
             1,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
             None,
+            None,
             |_, _, _| {},
         )
         .await;
@@ -235,20 +267,16 @@ impl<'a> Progress<'a> {
     }
 
     pub(crate) fn step(&self, phase: &str, message: &str, fraction: f64) {
-        (self.emit)(InstallProgressEvent {
-            phase: phase.into(),
-            message: message.into(),
-            progress: fraction.clamp(0.0, 1.0),
-        });
+        (self.emit)(InstallProgressEvent::basic(phase, message, fraction));
     }
 
     pub(crate) fn check_cancel(&self) -> Result<()> {
         if self.cancelled.load(Ordering::Relaxed) {
-            (self.emit)(InstallProgressEvent {
-                phase: "cancelled".into(),
-                message: "安装已取消".into(),
-                progress: 0.0,
-            });
+            (self.emit)(InstallProgressEvent::basic(
+                "cancelled",
+                "安装已取消",
+                0.0,
+            ));
             bail!("已取消");
         }
         Ok(())
@@ -270,31 +298,58 @@ pub(crate) async fn run_batch(
         return Ok(());
     }
     let total = items.len() as i32;
+    // 字节统计：已知大小时汇总；共享计数器随下载实时累加
+    let bytes_total: i64 = items.iter().map(|i| i.expected_size.unwrap_or(0)).sum();
+    let bytes_done = Arc::new(std::sync::atomic::AtomicI64::new(0));
+    // 「剩余文件」列表：文件名（末段），按完成移除
+    let remaining = Arc::new(std::sync::Mutex::new(
+        items
+            .iter()
+            .map(|i| {
+                Path::new(&i.save_path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| i.save_path.clone())
+            })
+            .collect::<Vec<_>>(),
+    ));
     let counter = Arc::new(std::sync::Mutex::new((0i32, std::time::Instant::now())));
     let counter_c = counter.clone();
-    let (finished, failed) = download_all(items, concurrency, cancelled.clone(), None, {
-        move |_ok, _item, _err| {
-            let mut g = counter_c.lock().unwrap();
-            g.0 += 1;
-            let now = std::time::Instant::now();
-            if now.duration_since(g.1).as_millis() >= 100 || g.0 >= total {
-                g.1 = now;
-                let frac = from + (to - from) * (g.0 as f64 / total as f64);
-                emit(InstallProgressEvent {
-                    phase: "download".into(),
-                    message: format!("下载{label}（{}/{}）", g.0, total),
-                    progress: frac.clamp(0.0, 1.0),
-                });
+    let bytes_done_c = bytes_done.clone();
+    let remaining_c = remaining.clone();
+    let (finished, failed) =
+        download_all(items, concurrency, cancelled.clone(), None, Some(bytes_done_c.clone()), {
+            move |ok, item, _err| {
+                // 更新剩余文件列表（无论成败都移除——失败的不再占位）
+                if let Some(name) = Path::new(&item.save_path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                {
+                    remaining_c.lock().unwrap().retain(|x| *x != name);
+                }
+                let _ = ok;
+                let mut g = counter_c.lock().unwrap();
+                g.0 += 1;
+                let now = std::time::Instant::now();
+                if now.duration_since(g.1).as_millis() >= 100 || g.0 >= total {
+                    g.1 = now;
+                    let frac = from + (to - from) * (g.0 as f64 / total as f64);
+                    emit(InstallProgressEvent {
+                        phase: "download".into(),
+                        message: format!("下载{label}（{}/{}）", g.0, total),
+                        progress: frac.clamp(0.0, 1.0),
+                        bytes_done: bytes_done_c.load(Ordering::Relaxed),
+                        bytes_total,
+                        files_done: g.0,
+                        files_total: total,
+                        remaining: remaining_snapshot(&remaining),
+                    });
+                }
             }
-        }
-    })
-    .await;
+        })
+        .await;
     if cancelled.load(Ordering::Relaxed) {
-        emit(InstallProgressEvent {
-            phase: "cancelled".into(),
-            message: "安装已取消".into(),
-            progress: from,
-        });
+        emit(InstallProgressEvent::basic("cancelled", "安装已取消", from));
         bail!("已取消");
     }
     if failed > 0 {
@@ -304,8 +359,19 @@ pub(crate) async fn run_batch(
         phase: "download".into(),
         message: format!("{label}下载完成（{finished}/{total}）"),
         progress: to,
+        bytes_done: bytes_done.load(Ordering::Relaxed),
+        bytes_total,
+        files_done: total,
+        files_total: total,
+        remaining: Vec::new(),
     });
     Ok(())
+}
+
+/// 快照「剩余文件」列表（截断至 80 条，避免事件体过大）
+fn remaining_snapshot(remaining: &std::sync::Mutex<Vec<String>>) -> Vec<String> {
+    let g = remaining.lock().unwrap();
+    g.iter().take(80).cloned().collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -345,11 +411,11 @@ pub(crate) async fn install_combined_core(
             if e.to_string().contains("已取消") {
                 Err(e)
             } else {
-                notify(InstallProgressEvent {
-                    phase: "failed".into(),
-                    message: format!("安装失败: {e}"),
-                    progress: 0.0,
-                });
+                notify(InstallProgressEvent::basic(
+                    "failed",
+                    &format!("安装失败: {e}"),
+                    0.0,
+                ));
                 Err(e)
             }
         }
@@ -1032,8 +1098,15 @@ async fn install_forgelike_legacy(
     );
     lib_items.retain(|it| !verify_existing(it));
     if !lib_items.is_empty() {
-        let (ok, failed) =
-            download_all(&lib_items, concurrency, cancelled.clone(), None, |_, _, _| {}).await;
+        let (ok, failed) = download_all(
+            &lib_items,
+            concurrency,
+            cancelled.clone(),
+            None,
+            None,
+            |_, _, _| {},
+        )
+        .await;
         if cancelled.load(Ordering::Relaxed) {
             bail!("已取消");
         }
@@ -1152,11 +1225,11 @@ async fn run_processors(
         }
         let main_coord = proc_def["jar"].as_str().unwrap_or_default();
         let label = main_coord.split(':').nth(1).unwrap_or(main_coord);
-        emit(InstallProgressEvent {
-            phase: "process".into(),
-            message: format!("执行处理器 {}/{}: {label}", i + 1, total),
-            progress: from + (to - from) * (i as f64 / total.max(1) as f64),
-        });
+        emit(InstallProgressEvent::basic(
+            "process",
+            &format!("执行处理器 {}/{}: {label}", i + 1, total),
+            from + (to - from) * (i as f64 / total.max(1) as f64),
+        ));
 
         // 输出校验 → 断点续装
         let outputs = proc_def["outputs"].as_object();
@@ -1354,6 +1427,7 @@ async fn download_optifine_installer(
         std::slice::from_ref(&item),
         1,
         Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        None,
         None,
         |_, _, _| {},
     )

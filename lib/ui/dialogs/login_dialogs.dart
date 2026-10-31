@@ -197,34 +197,42 @@ Future<void> microsoftLoginFlow(BuildContext context, WidgetRef ref) async {
   ).then((_) => ref.read(accountsProvider.notifier).reload());
 }
 
-// ---------------------------------------------------------------------------
-// 外置登录（authlib-injector）
-// ---------------------------------------------------------------------------
-
+/// 外置登录（authlib-injector）——对齐参照项目：
+///
+/// - [presetServer] 非 null 时隐藏服务器输入框（LittleSkin 预设，
+///   对齐参照项目 _showLittleSkinLogin）；null 时显示服务器输入框
+///   （任意 authlib-injector 皮肤站，对齐 _showCustomServerLogin）
+/// - 登录 → 角色选择（radio 样式 + UUID 副标题，对齐 _showRolePicker）
+///   → 保存 → 自动下载 authlib-injector
 Future<void> yggdrasilLoginFlow(
   BuildContext context,
   WidgetRef ref, {
-  String initialServer = 'https://littleskin.cn',
+  String title = '添加外置账户',
+  String? presetServer,
 }) async {
-  final serverC = TextEditingController(text: initialServer);
+  final serverC = TextEditingController(
+    text: presetServer ?? 'https://littleskin.cn',
+  );
   final userC = TextEditingController();
   final passC = TextEditingController();
 
   final ok = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: const Text('添加外置账户'),
+      title: Text(title),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(
-            controller: serverC,
-            decoration: const InputDecoration(
-              labelText: '认证服务器',
-              hintText: '如 https://littleskin.cn',
+          if (presetServer == null) ...[
+            TextField(
+              controller: serverC,
+              decoration: const InputDecoration(
+                labelText: '认证服务器',
+                hintText: '如 https://littleskin.cn（皮肤站首页或 API 根）',
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
+            const SizedBox(height: 10),
+          ],
           TextField(
             controller: userC,
             decoration: const InputDecoration(labelText: '邮箱 / 用户名'),
@@ -264,25 +272,10 @@ Future<void> yggdrasilLoginFlow(
           )
           .timeout(_loginTimeout);
       if (!context.mounted) return;
-      // 选择角色
+      // 选择角色（radio 样式，对齐参照项目 _showRolePicker）
       final profile = session.profiles.length == 1
           ? session.profiles.first
-          : await showDialog<rust.YggdrasilProfile>(
-              context: context,
-              builder: (dialogContext) => AlertDialog(
-                title: const Text('选择角色'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final p in session.profiles)
-                      ListTile(
-                        title: Text(p.name),
-                        onTap: () => Navigator.of(dialogContext).pop(p),
-                      ),
-                  ],
-                ),
-              ),
-            );
+          : await _showRolePicker(context, session.profiles);
       if (profile == null) return;
       await rust.saveYggdrasilAccount(
         apiRoot: session.apiRoot,
@@ -305,12 +298,60 @@ Future<void> yggdrasilLoginFlow(
   );
 }
 
+/// 角色选择（radio 样式 + UUID 副标题，对齐参照项目 _showRolePicker）
+Future<rust.YggdrasilProfile?> _showRolePicker(
+  BuildContext context,
+  List<rust.YggdrasilProfile> profiles,
+) {
+  return showDialog<rust.YggdrasilProfile>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('选择角色', style: TextStyle(fontSize: 16)),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: SingleChildScrollView(
+          child: RadioGroup<rust.YggdrasilProfile>(
+            groupValue: null,
+            onChanged: (v) => Navigator.of(dialogContext).pop(v),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final p in profiles)
+                  RadioListTile<rust.YggdrasilProfile>(
+                    value: p,
+                    title: Text(p.name),
+                    subtitle: Text(
+                      'UUID: ${p.id}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    activeColor: kAccent,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('取消'),
+        ),
+      ],
+    ),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // authlib-injector 下载（Rust 侧官方源 + GitHub 回退）
 // ---------------------------------------------------------------------------
 
-Future<void> ensureAuthlibInjectorFlow(BuildContext context) async {
-  if (!context.mounted) return;
+/// 确保 authlib-injector.jar 就绪；返回是否就绪（false = 下载失败或取消）。
+/// 位置固定：`exe 所在目录\FMCL\lib\authlib-injector\authlib-injector.jar`。
+Future<bool> ensureAuthlibInjectorFlow(BuildContext context) async {
+  if (!context.mounted) return false;
   // 预先捕获 NavigatorState：即便页面在下载期间被销毁也能关闭提示框
   final nav = Navigator.of(context);
   unawaited(
@@ -346,17 +387,28 @@ Future<void> ensureAuthlibInjectorFlow(BuildContext context) async {
     error = '$e';
   }
   nav.pop(); // 关闭下载提示
-  if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(
-        error == null
-            ? '外置登录组件已就绪（FMCL\\lib\\authlib-injector\\authlib-injector.jar）'
-            : 'authlib-injector 下载失败：$error\n启动游戏时会自动重试',
+  if (error != null) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('authlib-injector 下载失败：$error\n启动游戏时会自动重试'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+    return false;
+  }
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          '外置登录组件已就绪（FMCL\\lib\\authlib-injector\\authlib-injector.jar）',
+        ),
+        backgroundColor: kAccent,
       ),
-      backgroundColor: error == null ? kAccent : Colors.orange,
-    ),
-  );
+    );
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------

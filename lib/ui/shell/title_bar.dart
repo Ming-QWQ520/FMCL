@@ -1,15 +1,15 @@
-/// 自绘标题栏 —— 100% 对齐 PCL2 FormMain 布局：
+/// 自绘标题栏 —— 100% 对齐 PCL2 FormMain 布局（规格取自 PCL 源码）：
 ///
-/// - 高 48（PCL2 PanTitle Height=48）
-/// - 左侧：FMCL 标识（PCL2 ShapeTitleLogo 位置）
-/// - 中部：水平导航单选按钮「启动 / 下载 / 设置 / 更多」
-///   （PCL2 BtnTitleSelect0..4：MyRadioButton，高 27，图标+文字，
-///   hover 半透明底、选中主题色底）
-/// - 右侧：窗口按钮 28×28（PCL2 BtnTitleClose/BtnTitleMin：
-///   Height=28 Width=28，hover 半透明圆角底）
+/// - PanTitle 高 48，主题色背景（FormMain.xaml: Grid PanTitle Height=48）
+/// - 左侧：FMCL 标识（对应 PCL2 ShapeTitleLogo 位置，Margin 19/15.5）
+/// - 中部：PanTitleSelect（Margin 13,0 / Height 27）水平导航单选按钮
+///   「启动 / 下载 / 设置 / 更多」（MyRadioButton：Margin 5,0 / Padding 2,0 /
+///   CornerRadius 13.5 胶囊，图标+文字，hover 半透明白底）
+/// - 右侧：窗口按钮 28×28 圆形（MyIconButton CornerRadius=1000，
+///   hover 白 α50/255 圆形底，按下缩放 0.8 → 回弹 1.05 → 1.0；
+///   BtnTitleClose 右距 12、BtnTitleMin 右距 44，PCL2 无最大化按钮）
 /// - 关闭按钮绝不等待任何异步任务：设置保存改为 fire-and-forget，
-///   点击后立即关窗（修复「X 点击无反应」——旧实现 await 设置保存，
-///   一旦响应丢失则永不关闭）
+///   点击后立即关窗
 library;
 
 import 'dart:async';
@@ -32,51 +32,14 @@ class FmclTitleBar extends ConsumerStatefulWidget {
   ConsumerState<FmclTitleBar> createState() => _FmclTitleBarState();
 }
 
-class _FmclTitleBarState extends ConsumerState<FmclTitleBar>
-    with WindowListener {
-  bool _maximized = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (!kIsWeb && Platform.isWindows) {
-      windowManager.addListener(this);
-      _refreshMaximized();
-    }
-  }
-
-  @override
-  void dispose() {
-    if (!kIsWeb && Platform.isWindows) {
-      windowManager.removeListener(this);
-    }
-    super.dispose();
-  }
-
-  Future<void> _refreshMaximized() async {
-    try {
-      final v = await windowManager.isMaximized();
-      if (mounted && v != _maximized) setState(() => _maximized = v);
-    } catch (_) {}
-  }
-
-  @override
-  void onWindowMaximize() {
-    if (mounted) setState(() => _maximized = true);
-  }
-
-  @override
-  void onWindowUnmaximize() {
-    if (mounted) setState(() => _maximized = false);
-  }
-
+class _FmclTitleBarState extends ConsumerState<FmclTitleBar> {
+  /// 双击标题栏切换最大化（PCL2 无独立最大化按钮，靠拖拽/双击/边缘调整）
   Future<void> _toggleMaximize() async {
     if (await windowManager.isMaximized()) {
       await windowManager.unmaximize();
     } else {
       await windowManager.maximize();
     }
-    _refreshMaximized();
   }
 
   /// 记住窗口大小（PCL2 式记忆）。fire-and-forget：绝不阻塞关窗。
@@ -113,52 +76,33 @@ class _FmclTitleBarState extends ConsumerState<FmclTitleBar>
       color: const Color(0xFF3478F6),
       child: Row(
         children: [
-          // ---------- 左侧标识（拖拽区） ----------
+          // ---------- 左侧标识（拖拽区，ShapeTitleLogo 位置 Margin 19） ----------
           GestureDetector(
             onPanStart: (_) => windowManager.startDragging(),
             onDoubleTap: _toggleMaximize,
             behavior: HitTestBehavior.translucent,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'FMCL',
-                      style: TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.6,
-                        color: Colors.white,
-                      ),
+            child: Container(
+              height: 48,
+              padding: const EdgeInsets.only(left: 19),
+              alignment: Alignment.centerLeft,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'FMCL',
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.6,
+                      color: Colors.white,
                     ),
-                    const SizedBox(width: 7),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 1,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withAlpha(36),
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: const Text(
-                        '2',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                  SizedBox(width: 7),
+                ],
               ),
             ),
           ),
-          // ---------- 中部导航（PCL2 BtnTitleSelect：水平单选按钮） ----------
+          // ---------- 中部导航（PanTitleSelect：Margin 13,0 / Height 27） ----------
           Expanded(
             child: GestureDetector(
               onPanStart: (_) => windowManager.startDragging(),
@@ -176,24 +120,17 @@ class _FmclTitleBarState extends ConsumerState<FmclTitleBar>
               ),
             ),
           ),
-          // ---------- 右侧窗口按钮（PCL2 28×28） ----------
+          // ---------- 右侧窗口按钮（28×28 圆形；Min 右距 44 / Close 右距 12） ----------
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                const SizedBox(width: 4),
                 _WindowButton(
                   icon: Icons.minimize_rounded,
                   onPressed: windowManager.minimize,
                   tooltip: '最小化',
-                ),
-                const SizedBox(width: 4),
-                _WindowButton(
-                  icon: _maximized
-                      ? Icons.filter_none_rounded
-                      : Icons.crop_square_rounded,
-                  onPressed: _toggleMaximize,
-                  tooltip: _maximized ? '向下还原' : '最大化',
                 ),
                 const SizedBox(width: 4),
                 _WindowButton(
@@ -215,7 +152,8 @@ class _FmclTitleBarState extends ConsumerState<FmclTitleBar>
   }
 }
 
-/// 顶栏导航按钮（PCL2 MyRadioButton：高 27，图标 + 文字，hover 半透明底）
+/// 顶栏导航按钮（PCL2 MyRadioButton：高 27 / Margin 5,0 / Padding 2,0 /
+/// CornerRadius 13.5 胶囊，图标 15 + 文字 13，hover 半透明白底）
 class _TitleNavButton extends ConsumerStatefulWidget {
   final int index;
   final bool selected;
@@ -256,11 +194,11 @@ class _TitleNavButtonState extends ConsumerState<_TitleNavButton> {
           duration: const Duration(milliseconds: 120),
           curve: Curves.easeOut,
           height: 27,
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 9),
+          margin: const EdgeInsets.symmetric(horizontal: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 11),
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: BorderRadius.circular(7),
+            borderRadius: BorderRadius.circular(13.5),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -283,7 +221,8 @@ class _TitleNavButtonState extends ConsumerState<_TitleNavButton> {
   }
 }
 
-/// 窗口按钮（PCL2 MyIconButton：28×28，hover 半透明圆角底，点击缩放反馈）
+/// 窗口按钮（PCL2 MyIconButton：28×28 圆形 CornerRadius=1000，
+/// hover 白 α50 圆形底，按下缩放 0.8 / 释放回弹 1.05 → 1.0）
 class _WindowButton extends StatefulWidget {
   final IconData icon;
   final VoidCallback onPressed;
@@ -322,20 +261,19 @@ class _WindowButtonState extends State<_WindowButton> {
           onTapUp: (_) => setState(() => _pressed = false),
           onTap: widget.onPressed,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
+            duration: const Duration(milliseconds: 140),
             curve: Curves.easeOut,
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: _pressed
-                  ? Colors.white.withAlpha(52)
-                  : _hover
-                  ? Colors.white.withAlpha(34)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(7),
+              color: _hover ? Colors.white.withAlpha(50) : Colors.transparent,
+              shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
-            child: Icon(widget.icon, size: 15, color: Colors.white),
+            child: Transform.scale(
+              scale: _pressed ? 0.8 : 1.0,
+              child: Icon(widget.icon, size: 15, color: Colors.white),
+            ),
           ),
         ),
       ),

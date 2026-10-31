@@ -25,11 +25,15 @@ pub fn build_public_client() -> Result<reqwest::Client> {
 /// 批量下载核心（无事件流依赖），供 install 管线复用。
 ///
 /// 返回 (成功数, 失败数)。已存在且校验通过的文件自动跳过。
+///
+/// `byte_counter`：可选共享字节计数器（所有文件累计写入字节数），
+/// 供上层聚合实时速度；None 时各文件独立计数（不可见）。
 pub async fn download_all(
     items: &[DownloadItem],
     concurrency: usize,
     cancelled: Arc<std::sync::atomic::AtomicBool>,
     user_agent: Option<String>,
+    byte_counter: Option<Arc<AtomicI64>>,
     mut on_file_done: impl FnMut(bool, &DownloadItem, Option<String>) + Send,
 ) -> (i32, i32) {
     let client = match build_client(user_agent) {
@@ -46,6 +50,7 @@ pub async fn download_all(
         let semaphore = semaphore.clone();
         let cancelled = cancelled.clone();
         let item = item.clone();
+        let counter = byte_counter.clone();
         tasks.push(tokio::spawn(async move {
             let permit = semaphore.acquire_owned().await;
             let result = if cancelled.load(Ordering::Relaxed) {
@@ -55,7 +60,9 @@ pub async fn download_all(
                     error: Some("已取消".into()),
                 }
             } else {
-                run_one(&client, &item, &Arc::new(AtomicI64::new(0))).await
+                let counter =
+                    counter.unwrap_or_else(|| Arc::new(AtomicI64::new(0)));
+                run_one(&client, &item, &counter).await
             };
             drop(permit);
             (item, result)

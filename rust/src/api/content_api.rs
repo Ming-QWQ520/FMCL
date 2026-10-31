@@ -251,6 +251,7 @@ pub async fn install_content_file(
         1,
         cancelled,
         None,
+        None,
         |_, _, _| {},
     )
     .await;
@@ -603,6 +604,7 @@ pub async fn install_modpack(
             &items,
             concurrency.max(1) as usize,
             cancelled.clone(),
+            None,
             None,
             move |_s, _i, _e| {
                 let mut g = counter_c.lock().unwrap();

@@ -10,8 +10,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../rust_bridge/rust_bridge.dart' as rust;
 import '../../state/app_providers.dart';
+import '../theme/pcl_theme.dart';
 import '../widgets/common.dart';
-import 'accounts_page.dart';
+import 'account_manage_page.dart';
 import 'logs_page.dart';
 
 class MorePage extends ConsumerStatefulWidget {
@@ -41,12 +42,99 @@ class _MorePageState extends ConsumerState<MorePage> {
         ),
         Expanded(
           child: switch (_tab) {
-            0 => const AccountsPage(),
+            0 => const _AccountEntryTab(),
             1 => const LogsPage(),
             _ => const _AboutTab(),
           },
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 账户管理入口（完整管理页为独立全屏页，参照项目 AccountPage 布局）
+// ---------------------------------------------------------------------------
+class _AccountEntryTab extends ConsumerWidget {
+  const _AccountEntryTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final accounts = ref.watch(accountsProvider);
+    final cur = accounts.current;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final subText = isDark ? Colors.white38 : Colors.black38;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            PclPanel(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.account_circle_rounded,
+                        size: 40,
+                        color: kAccent,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              cur?.name ?? '尚未登录',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              cur == null
+                                  ? '启动前需要先登录离线 / 微软 / 外置账户'
+                                  : switch (cur.accountType) {
+                                      'microsoft' => '微软正版登录',
+                                      'yggdrasil' =>
+                                        '外置登录 · ${cur.yggdrasilServer ?? ""}',
+                                      _ => '离线模式',
+                                    },
+                              style: TextStyle(fontSize: 12.5, color: subText),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      PclTag('共 ${accounts.accounts.length} 个账户'),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  PclButton(
+                    text: '打开账户管理',
+                    icon: Icons.manage_accounts_rounded,
+                    onTap: () => Navigator.of(context)
+                        .push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const AccountManagePage(),
+                          ),
+                        )
+                        .then((_) {
+                          ref.read(accountsProvider.notifier).reload();
+                        }),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

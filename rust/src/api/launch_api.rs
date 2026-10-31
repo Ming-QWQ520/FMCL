@@ -521,6 +521,7 @@ async fn batch_download(
         concurrency,
         cancelled.clone(),
         None,
+        None,
         move |_ok, _item, _err| {
             let mut g = counter.lock().unwrap();
             g.0 += 1;

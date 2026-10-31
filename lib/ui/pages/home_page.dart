@@ -21,6 +21,7 @@ import '../dialogs/login_dialogs.dart';
 import '../dialogs/version_settings_dialog.dart';
 import '../theme/pcl_theme.dart';
 import '../widgets/common.dart';
+import 'account_manage_page.dart';
 
 /// PCL2 启动按钮绿（与截图一致）
 const Color _launchGreen = Color(0xFF3DA039);
@@ -426,7 +427,18 @@ class _AccountView extends ConsumerWidget {
                 primary: false,
                 height: 30,
                 fontSize: 12.5,
-                onTap: () => ref.read(pageIndexProvider.notifier).set(3),
+                onTap: () {
+                  Navigator.of(context)
+                      .push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const AccountManagePage(),
+                        ),
+                      )
+                      .then((_) {
+                        // 返回后同步账户列表（启动页头像 / 名称）
+                        ref.read(accountsProvider.notifier).reload();
+                      });
+                },
               ),
               const SizedBox(width: 8),
               PclButton(
@@ -659,16 +671,33 @@ class _YggdrasilFormState extends ConsumerState<_YggdrasilForm> {
         profile = await showDialog<rust.YggdrasilProfile>(
           context: context,
           builder: (dialogContext) => AlertDialog(
-            title: const Text('选择角色'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final p in session.profiles)
-                  ListTile(
-                    title: Text(p.name),
-                    onTap: () => Navigator.of(dialogContext).pop(p),
+            title: const Text('选择角色', style: TextStyle(fontSize: 16)),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: SingleChildScrollView(
+                child: RadioGroup<rust.YggdrasilProfile>(
+                  groupValue: null,
+                  onChanged: (v) => Navigator.of(dialogContext).pop(v),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final p in session.profiles)
+                        RadioListTile<rust.YggdrasilProfile>(
+                          value: p,
+                          title: Text(p.name),
+                          subtitle: Text(
+                            'UUID: ${p.id}',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          activeColor: kAccent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                    ],
                   ),
-              ],
+                ),
+              ),
             ),
           ),
         );

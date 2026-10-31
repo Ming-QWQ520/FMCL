@@ -652,11 +652,26 @@ class InstallProgressEvent {
   final String phase;
   final String message;
   final double progress;
+  /// 当前批次已完成字节（批次切换时归零）
+  final int bytesDone;
+  /// 当前批次总字节（0 = 未知）
+  final int bytesTotal;
+  /// 当前批次已完成文件数
+  final int filesDone;
+  /// 当前批次总文件数
+  final int filesTotal;
+  /// 当前批次尚未完成的文件名（供「剩余文件」列表）
+  final List<String> remaining;
 
   const InstallProgressEvent({
     required this.phase,
     required this.message,
     this.progress = 0,
+    this.bytesDone = 0,
+    this.bytesTotal = 0,
+    this.filesDone = 0,
+    this.filesTotal = 0,
+    this.remaining = const [],
   });
 
   factory InstallProgressEvent.fromJson(dynamic j) {
@@ -665,6 +680,13 @@ class InstallProgressEvent {
       phase: m['phase'] as String? ?? '',
       message: m['message'] as String? ?? '',
       progress: (m['progress'] as num?)?.toDouble() ?? 0,
+      bytesDone: (m['bytesDone'] as num?)?.toInt() ?? 0,
+      bytesTotal: (m['bytesTotal'] as num?)?.toInt() ?? 0,
+      filesDone: (m['filesDone'] as num?)?.toInt() ?? 0,
+      filesTotal: (m['filesTotal'] as num?)?.toInt() ?? 0,
+      remaining: (m['remaining'] as List<dynamic>?)
+          ?.map((e) => e.toString())
+          .toList() ?? const [],
     );
   }
 }

@@ -102,47 +102,87 @@ pub fn normalize_server_url(input: String) -> String {
 }
 
 /// 探测认证服务器元数据（返回 API 根；authlib-injector ALI 头规范）
+///
+/// 探测顺序（任一返回有效元数据即成功）：
+/// 1. 输入地址原样（用户可能直接填 API 根，如 `https://littleskin.cn/api/yggdrasil`）
+/// 2. `{基址}/api/yggdrasil`（Blessing Skin 系皮肤站约定路径）
+///
+/// ★ API 根默认取「实际返回元数据的那个 URL」，而不是站点基址。
+///   LittleSkin 的响应头不含 `x-authlib-injector-api-location`（被 CDN 剥离），
+///   旧实现此时回退成基址 → POST 打到 `{基址}/authserver/authenticate` → 404。
 pub async fn yggdrasil_server_meta(server_url: String) -> Result<YggdrasilServerMeta> {
     let normalized = normalize_server_url(server_url);
     anyhow::ensure!(!normalized.is_empty(), "认证服务器地址不能为空");
-    let probe_url = format!("{normalized}/api/yggdrasil");
-    crate::log_info!("Auth", "探测认证服务器: {probe_url}");
-    let c = client()?;
-    let resp = c.get(&probe_url).send().await.map_err(|e| {
-        crate::log_warn!("Auth", "探测失败 {probe_url}: {e}");
-        anyhow!("认证服务器不可达: {normalized}（请检查地址与网络）")
-    })?;
-    anyhow::ensure!(
-        resp.status().is_success(),
-        "无法连接认证服务器 (HTTP {})",
-        resp.status()
-    );
-    let ali = resp
-        .headers()
-        .get("x-authlib-injector-api-location")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-    let meta: Value = resp.json().await.unwrap_or(Value::Null);
-    let mut api_root = normalized.clone();
-    if let Some(loc) = ali {
-        // 相对地址解析
-        api_root = if loc.starts_with("http://") || loc.starts_with("https://") {
-            loc.trim_end_matches('/').to_string()
-        } else {
-            format!("{normalized}/{}", loc.trim_start_matches('/'))
-                .trim_end_matches('/')
-                .to_string()
-        };
-        while api_root.ends_with('/') {
-            api_root.pop();
-        }
+    let base = normalized.clone();
+    let mut candidates: Vec<String> = vec![base.clone()];
+    // 用户填的是站点根时，补充约定路径；反之（已带 /yggdrasil 路径）不必重复
+    let has_api_path = base
+        .split_once("://")
+        .map(|(_, rest)| rest.contains('/'))
+        .unwrap_or(false);
+    if !has_api_path {
+        candidates.push(format!("{base}/api/yggdrasil"));
     }
-    let server_name = meta
-        .pointer("/meta/serverName")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&normalized)
-        .to_string();
-    Ok(YggdrasilServerMeta { api_root, server_name })
+    // 去重（原样输入可能就是基址）
+    candidates.dedup();
+
+    let c = client()?;
+    let mut last_err = String::new();
+    for probe_url in &candidates {
+        crate::log_info!("Auth", "探测认证服务器: {probe_url}");
+        let resp = match c.get(probe_url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                crate::log_warn!("Auth", "探测失败 {probe_url}: {e}");
+                last_err = format!("认证服务器不可达: {probe_url}");
+                continue;
+            }
+        };
+        if !resp.status().is_success() {
+            crate::log_warn!("Auth", "探测 HTTP {}: {probe_url}", resp.status());
+            last_err = format!("无法连接认证服务器 (HTTP {})", resp.status());
+            continue;
+        }
+        // ALI 头必须先于 json() 读取（json() 会消费 resp）
+        let ali = resp
+            .headers()
+            .get("x-authlib-injector-api-location")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        // 元数据 JSON（无效 JSON 视为探测失败，继续下一个候选）
+        let meta: Value = match resp.json().await {
+            Ok(m) => m,
+            Err(e) => {
+                crate::log_warn!("Auth", "元数据解析失败 {probe_url}: {e}");
+                last_err = format!("认证服务器元数据无效: {probe_url}");
+                continue;
+            }
+        };
+        // ★ 默认 = 实际返回元数据的 URL；ALI 头存在时以其为准（相对地址按基址解析）
+        let mut api_root = probe_url.clone();
+        if let Some(loc) = ali {
+            api_root = if loc.starts_with("http://") || loc.starts_with("https://") {
+                loc.trim_end_matches('/').to_string()
+            } else {
+                format!("{base}/{}", loc.trim_start_matches('/'))
+                    .trim_end_matches('/')
+                    .to_string()
+            };
+            while api_root.ends_with('/') {
+                api_root.pop();
+            }
+        }
+        let server_name = meta
+            .pointer("/meta/serverName")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&base)
+            .to_string();
+        crate::log_info!("Auth", "元数据就绪: {server_name}（{api_root}）");
+        return Ok(YggdrasilServerMeta { api_root, server_name });
+    }
+    bail!(
+        "{last_err}（请检查地址与网络；外置登录需填皮肤站首页或 API 根地址）"
+    );
 }
 
 /// 外置角色档案

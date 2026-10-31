@@ -14,6 +14,7 @@ import '../dialogs/install_task_dialog.dart';
 import '../dialogs/version_settings_dialog.dart';
 import '../theme/pcl_theme.dart';
 import '../widgets/common.dart';
+import 'download_detail_page.dart';
 
 class DownloadPage extends ConsumerStatefulWidget {
   const DownloadPage({super.key});
@@ -78,7 +79,8 @@ class _DownloadPageState extends ConsumerState<DownloadPage> {
 }
 
 // ---------------------------------------------------------------------------
-// 新游戏
+// 新游戏（布局 100% 借鉴参照项目 DownloadPage：左版本列表 + 右加载器卡片 +
+// 底部「开始下载」按钮 → 全屏下载详情页）
 // ---------------------------------------------------------------------------
 
 class _NewGameTab extends ConsumerStatefulWidget {
@@ -89,8 +91,8 @@ class _NewGameTab extends ConsumerStatefulWidget {
 }
 
 class _NewGameTabState extends ConsumerState<_NewGameTab> {
+  /// 加载器（原版隐式：null = 不装加载器）
   static const _loaders = [
-    'vanilla',
     'forge',
     'neoforge',
     'fabric',
@@ -98,7 +100,6 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
     'optifine',
   ];
   static const _loaderNames = [
-    '原版',
     'Forge',
     'NeoForge',
     'Fabric',
@@ -106,293 +107,333 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
     'OptiFine',
   ];
 
-  int _loaderIndex = 0;
   String? _selectedMc;
+  /// 选中的加载器（展开即选中，null = 原版）
+  String? _selectedLoader;
+  /// 展开的加载器卡片（与 _selectedLoader 联动）
+  String? _expandedLoader;
   String? _selectedLoaderVer;
   final _nameController = TextEditingController();
   String _mcFilter = '';
+  /// 版本过滤：release | snapshot | all（对齐参照项目 chips）
+  String _versionFilter = 'release';
+
+  String get _loaderNameOf => _selectedLoader == null
+      ? '原版'
+      : _loaderNames[_loaders.indexOf(_selectedLoader!)];
+
+  String get _defaultName =>
+      '${_selectedMc ?? ''}${_selectedLoader == null ? '' : '-$_loaderNameOf'}';
 
   @override
   Widget build(BuildContext context) {
     final remote = ref.watch(remoteVersionsProvider);
-    final settings = ref.watch(settingsProvider);
-    final bmclFirst = settings.downloadSourceIndex == 0;
-    final loaderKey = _loaders[_loaderIndex] == 'vanilla'
-        ? null
-        : (_loaders[_loaderIndex], _selectedMc ?? '');
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 左：原版版本列表
-        PclPanel(
-          padding: const EdgeInsets.all(10),
-          margin: EdgeInsets.zero,
-          child: SizedBox(
-            width: 300,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  decoration: const InputDecoration(
-                    hintText: '搜索版本...',
-                    prefixIcon: Icon(Icons.search, size: 18),
-                  ),
-                  onChanged: (v) => setState(() => _mcFilter = v.trim()),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: remote.when(
-                    data: (list) {
-                      final filtered = _mcFilter.isEmpty
-                          ? list
-                          : list
-                                .where(
-                                  (e) => e.id.toLowerCase().contains(
-                                    _mcFilter.toLowerCase(),
-                                  ),
-                                )
-                                .toList();
-                      return ListView.builder(
-                        itemCount: filtered.length,
-                        itemBuilder: (context, i) {
-                          final e = filtered[i];
-                          final selected = _selectedMc == e.id;
-                          return HoverTile(
-                            onTap: () => setState(() {
-                              _selectedMc = e.id;
-                              _selectedLoaderVer = null;
-                            }),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 4,
-                                  height: 30,
-                                  decoration: BoxDecoration(
-                                    color: selected
-                                        ? kAccent
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        e.id,
-                                        style: TextStyle(
-                                          fontWeight: selected
-                                              ? FontWeight.w700
-                                              : FontWeight.w500,
-                                          color: selected ? kAccent : null,
-                                        ),
-                                      ),
-                                      Text(
-                                        _typeLabel(e.versionType),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color:
-                                              Theme.of(context).brightness ==
-                                                  Brightness.dark
-                                              ? Colors.white30
-                                              : Colors.black26,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      );
-                    },
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (e, _) => EmptyView(
-                      icon: Icons.cloud_off_rounded,
-                      text: '获取版本清单失败：$e',
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        // 右：加载器 + 安装
-        Expanded(
-          child: PclPanel(
-            padding: const EdgeInsets.all(16),
-            child: _selectedMc == null
-                ? const EmptyView(
-                    icon: Icons.touch_app_rounded,
-                    text: '先在左侧选择游戏版本',
-                  )
-                : _buildRight(context, loaderKey, bmclFirst),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildRight(
-    BuildContext context,
-    (String, String)? loaderKey,
-    bool bmclFirst,
-  ) {
-    final loaderVersions = loaderKey == null
-        ? null
-        : ref.watch(loaderVersionsProvider(loaderKey));
-    final canInstall =
-        _selectedMc != null &&
-        (_loaders[_loaderIndex] == 'vanilla' ||
-            _loaders[_loaderIndex] == 'optifine' ||
-            _selectedLoaderVer != null);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final subText = isDark ? Colors.white38 : Colors.black38;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            VersionIcon(loader: _loaders[_loaderIndex], size: 42),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '$_selectedMc ${_loaderNames[_loaderIndex]}',
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  Text(
-                    '安装到 ${ref.watch(gameDirProvider)}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white38
-                          : Colors.black38,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        // 加载器类型
-        Wrap(
-          spacing: 8,
-          children: [
-            for (var i = 0; i < _loaders.length; i++)
-              ChoiceChip(
-                label: Text(_loaderNames[i]),
-                selected: _loaderIndex == i,
-                selectedColor: kAccent.withAlpha(40),
-                labelStyle: TextStyle(
-                  color: _loaderIndex == i ? kAccent : null,
-                  fontWeight: _loaderIndex == i
-                      ? FontWeight.w700
-                      : FontWeight.w500,
-                ),
-                side: BorderSide(
-                  color: _loaderIndex == i
-                      ? kAccent
-                      : (Theme.of(context).brightness == Brightness.dark
-                            ? Colors.white24
-                            : Colors.black12),
-                ),
-                onSelected: (_) => setState(() {
-                  _loaderIndex = i;
-                  _selectedLoaderVer = null;
-                }),
-              ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        // 加载器版本
-        if (loaderKey != null)
-          loaderVersions!.when(
-            data: (list) {
-              if (list.isEmpty) {
-                return const Text(
-                  '该版本暂无可用加载器版本',
-                  style: TextStyle(color: Colors.orange),
-                );
-              }
-              return DropdownButtonFormField<String>(
-                initialValue: _selectedLoaderVer,
-                decoration: InputDecoration(
-                  labelText: '${_loaderNames[_loaderIndex]} 版本',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                items: [
-                  for (final v in list)
-                    DropdownMenuItem(
-                      value: v.version,
-                      child: Row(
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ==================== 左：版本列表（参照项目 flex 3） ====================
+              Expanded(
+                flex: 3,
+                child: PclPanel(
+                  padding: const EdgeInsets.all(10),
+                  margin: EdgeInsets.zero,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
                         children: [
-                          Text(v.version),
-                          if (v.isRecommended) ...[
-                            const SizedBox(width: 6),
-                            PclTag('推荐', color: Colors.green),
-                          ],
-                          if (v.isPreview) PclTag('测试', color: Colors.orange),
+                          Text('原版游戏', style: TextStyle(fontSize: 12.5, color: subText, fontWeight: FontWeight.w600, letterSpacing: 1.2)),
+                          const Spacer(),
+                          Text('Minecraft', style: TextStyle(fontSize: 11.5, color: subText)),
                         ],
                       ),
-                    ),
-                ],
-                onChanged: (v) => setState(() => _selectedLoaderVer = v),
-              );
-            },
-            loading: () => const LinearProgressIndicator(),
-            error: (e, _) =>
-                Text('获取加载器版本失败：$e', style: const TextStyle(color: Colors.red)),
+                      const SizedBox(height: 8),
+                      TextField(
+                        decoration: const InputDecoration(
+                          hintText: '搜索版本...',
+                          prefixIcon: Icon(Icons.search, size: 18),
+                        ),
+                        onChanged: (v) => setState(() => _mcFilter = v.trim()),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: remote.when(
+                          data: (list) {
+                            final filtered = list.where((e) {
+                              if (_mcFilter.isNotEmpty &&
+                                  !e.id.toLowerCase().contains(
+                                    _mcFilter.toLowerCase(),
+                                  )) {
+                                return false;
+                              }
+                              return switch (_versionFilter) {
+                                'release' => e.versionType == 'release',
+                                'snapshot' =>
+                                  e.versionType == 'snapshot' ||
+                                      e.versionType == 'old_beta' ||
+                                      e.versionType == 'old_alpha',
+                                _ => true,
+                              };
+                            }).toList();
+                            return ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (context, i) {
+                                final e = filtered[i];
+                                final selected = _selectedMc == e.id;
+                                return HoverTile(
+                                  onTap: () => setState(() {
+                                    _selectedMc = e.id;
+                                    _selectedLoaderVer = null;
+                                    _expandedLoader = null;
+                                    _nameController.text =
+                                        '${e.id}${_selectedLoader == null ? '' : '-$_loaderNameOf'}';
+                                  }),
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 2),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 7,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: selected
+                                          ? kAccent.withAlpha(26)
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: selected
+                                            ? kAccent.withAlpha(66)
+                                            : Colors.transparent,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                e.id,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: selected
+                                                      ? FontWeight.w700
+                                                      : FontWeight.w500,
+                                                  color: selected
+                                                      ? kAccent
+                                                      : null,
+                                                ),
+                                              ),
+                                              Text(
+                                                _typeLabel(e.versionType),
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: subText,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (selected)
+                                          const Icon(
+                                            Icons.check_rounded,
+                                            color: kAccent,
+                                            size: 16,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                          loading: () => const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                          error: (e, _) => EmptyView(
+                            icon: Icons.cloud_off_rounded,
+                            text: '获取版本清单失败：$e',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // ==================== 右：加载器卡片（参照项目 flex 4） ====================
+              Expanded(
+                flex: 4,
+                child: _selectedMc == null
+                    ? PclPanel(
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.arrow_back_rounded, size: 34, color: subText),
+                              const SizedBox(height: 10),
+                              Text('请先在左侧选择一个原版版本', style: TextStyle(color: subText)),
+                            ],
+                          ),
+                        ),
+                      )
+                    : _buildRight(context, isDark, subText),
+              ),
+            ],
           ),
-        const SizedBox(height: 14),
-        // 实例名
-        TextField(
-          controller: _nameController,
-          decoration: InputDecoration(
-            labelText: '版本名称（可留空自动命名）',
-            hintText:
-                '${_selectedMc ?? ''}${_loaders[_loaderIndex] == 'vanilla' ? '' : '-${_loaderNames[_loaderIndex]}'}',
-          ),
-        ),
-        const Spacer(),
-        Row(
-          children: [
-            PclTag(
-              bmclFirst ? '下载源：BMCLAPI 优先' : '下载源：官方优先',
-              color: bmclFirst ? kAccent : Colors.teal,
-            ),
-            const Spacer(),
-            PclButton(
-              text: '开始安装',
-              icon: Icons.download_rounded,
-              onTap: canInstall ? () => _install(context) : null,
-            ),
-          ],
         ),
       ],
     );
   }
 
-  void _install(BuildContext context) {
+  Widget _buildRight(BuildContext context, bool isDark, Color subText) {
+    return PclPanel(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ---------- 头部：版本标题 + 过滤 chips（参照项目头部） ----------
+          Row(
+            children: [
+              VersionIcon(loader: _selectedLoader ?? 'vanilla', size: 34),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '$_selectedMc ${_selectedLoader == null ? '原版' : '· $_loaderNameOf'}',
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              _chip('正式版', 'release', isDark),
+              const SizedBox(width: 6),
+              _chip('快照版', 'snapshot', isDark),
+              const SizedBox(width: 6),
+              _chip('全部', 'all', isDark),
+            ],
+          ),
+          Divider(height: 20, color: isDark ? Colors.white.withAlpha(16) : Colors.black.withAlpha(16)),
+          // ---------- 版本名称 ----------
+          TextField(
+            controller: _nameController,
+            decoration: InputDecoration(
+              labelText: '版本名称',
+              hintText: _defaultName,
+              isDense: true,
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 14),
+          Text('选择加载器（不选 = 纯原版）', style: TextStyle(fontSize: 13, color: subText)),
+          const SizedBox(height: 8),
+          // ---------- 加载器卡片（参照项目 _buildLoaderCard） ----------
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < _loaders.length; i++)
+                    _LoaderCard(
+                      title: _loaderNames[i],
+                      loader: _loaders[i],
+                      mcVersion: _selectedMc!,
+                      selectedVersion: _selectedLoader == _loaders[i]
+                          ? _selectedLoaderVer
+                          : null,
+                      expanded: _expandedLoader == _loaders[i],
+                      onToggle: () => _toggleLoader(_loaders[i]),
+                      onClear: () => setState(() {
+                        if (_selectedLoader == _loaders[i]) {
+                          _selectedLoader = null;
+                          _selectedLoaderVer = null;
+                        }
+                        _expandedLoader = null;
+                      }),
+                      onSelectVersion: (v) => setState(() {
+                        _selectedLoader = _loaders[i];
+                        _selectedLoaderVer = v;
+                        _nameController.text = _defaultName;
+                      }),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          // ---------- 底部开始下载（参照项目底部按钮行） ----------
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 44,
+            child: FilledButton.icon(
+              onPressed: _startDownload,
+              icon: const Icon(Icons.download_rounded, size: 18),
+              label: const Text(
+                '开始下载',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: kAccent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String label, String filter, bool isDark) {
+    final sel = _versionFilter == filter;
+    return ChoiceChip(
+      label: Text(label),
+      selected: sel,
+      onSelected: (v) {
+        if (v) setState(() => _versionFilter = filter);
+      },
+      visualDensity: VisualDensity.compact,
+      selectedColor: kAccent.withAlpha(56),
+      labelStyle: TextStyle(
+        color: sel ? kAccent : (isDark ? Colors.white54 : Colors.black45),
+        fontSize: 11.5,
+      ),
+      side: BorderSide(
+        color: sel
+            ? kAccent
+            : (isDark ? Colors.white24 : Colors.black12),
+      ),
+      showCheckmark: false,
+    );
+  }
+
+  void _toggleLoader(String loader) {
+    setState(() {
+      if (_expandedLoader == loader) {
+        // 再次点击收起；若已选择该加载器则保持选中
+        _expandedLoader = null;
+        return;
+      }
+      _expandedLoader = loader;
+      if (_selectedLoader != loader) {
+        _selectedLoader = loader;
+        _selectedLoaderVer = null;
+      }
+      _nameController.text = _defaultName;
+    });
+  }
+
+  void _startDownload() {
+    if (_selectedMc == null) return;
     final settings = ref.read(settingsProvider);
     final gameDir = ref.read(gameDirProvider);
-    final loader = _loaders[_loaderIndex];
+    final loader = _selectedLoader;
     final name = _nameController.text.trim().isEmpty
-        ? '$_selectedMc${loader == 'vanilla' ? '' : '-${_loaderNames[_loaderIndex]}'}'
+        ? _defaultName
         : _nameController.text.trim();
     final task = ref.read(installTaskProvider.notifier);
 
@@ -418,14 +459,166 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
             )
           : null,
     );
-    task.install(request, '安装 $_selectedMc ${_loaderNames[_loaderIndex]}');
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const InstallTaskDialog(),
-    ).then((_) {
-      ref.read(localVersionsProvider.notifier).refresh();
-    });
+    task.install(request, '安装 $name');
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => DownloadDetailPage(
+              onRetry: () => task.install(request, '安装 $name'),
+            ),
+          ),
+        )
+        .then((_) {
+          ref.read(localVersionsProvider.notifier).refresh();
+          ref.read(installTaskProvider.notifier).reset();
+        });
+  }
+}
+
+/// 加载器卡片（100% 借鉴参照项目 _buildLoaderCard）：
+/// 头部 ListTile（图标 + 标题 / 已选「Forge 47.2.0」+ 清除×），
+/// 展开后为该加载器的版本列表（高度受限，内滚）。
+class _LoaderCard extends ConsumerWidget {
+  final String title;
+  final String loader;
+  final String mcVersion;
+  final String? selectedVersion;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final VoidCallback onClear;
+  final ValueChanged<String> onSelectVersion;
+
+  const _LoaderCard({
+    required this.title,
+    required this.loader,
+    required this.mcVersion,
+    required this.selectedVersion,
+    required this.expanded,
+    required this.onToggle,
+    required this.onClear,
+    required this.onSelectVersion,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasSel = selectedVersion != null;
+    final dt = (!expanded && hasSel) ? '$title $selectedVersion' : title;
+    final active = expanded || hasSel;
+    final border = isDark ? Colors.white.withAlpha(16) : Colors.black.withAlpha(16);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: (!expanded && hasSel)
+            ? kAccent.withAlpha(16)
+            : (isDark ? Colors.white.withAlpha(8) : Colors.black.withAlpha(6)),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: active ? kAccent.withAlpha(66) : border),
+      ),
+      child: Column(
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: ListTile(
+              dense: true,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              leading: VersionIcon(loader: loader, size: 26),
+              title: Text(
+                dt,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  color: active ? kAccent : null,
+                ),
+              ),
+              trailing: (!expanded && hasSel)
+                  ? InkWell(
+                      onTap: onClear,
+                      borderRadius: BorderRadius.circular(20),
+                      child: const Icon(Icons.close_rounded, size: 18),
+                    )
+                  : Icon(
+                      expanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      size: 20,
+                      color: isDark ? Colors.white54 : Colors.black38,
+                    ),
+              onTap: onToggle,
+            ),
+          ),
+          if (expanded) _buildVersionList(context, ref, isDark),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVersionList(BuildContext context, WidgetRef ref, bool isDark) {
+    final subText = isDark ? Colors.white38 : Colors.black38;
+    // OptiFine 与原版同源（加载器清单按 mc 版本返回）
+    final loaderVersions = ref.watch(
+      loaderVersionsProvider((loader, mcVersion)),
+    );
+    return loaderVersions.when(
+      data: (list) {
+        if (list.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('暂无可用的 $title 版本', style: TextStyle(fontSize: 12.5, color: subText)),
+          );
+        }
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 240),
+          child: ListView.builder(
+            shrinkWrap: true,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            itemCount: list.length,
+            itemBuilder: (_, i) {
+              final fv = list[i];
+              final sel = selectedVersion == fv.version;
+              return ListTile(
+                dense: true,
+                visualDensity: VisualDensity.compact,
+                title: Text(
+                  fv.version,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: sel ? kAccent : null,
+                    fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+                subtitle: fv.isPreview
+                    ? Text('测试版', style: TextStyle(fontSize: 11, color: subText))
+                    : null,
+                trailing: sel
+                    ? const Icon(Icons.check_rounded, color: kAccent, size: 16)
+                    : (fv.isRecommended
+                          ? PclTag('推荐', color: Colors.green)
+                          : null),
+                onTap: () => onSelectVersion(fv.version),
+              );
+            },
+          ),
+        );
+      },
+      loading: () => const Padding(
+        padding: EdgeInsets.all(22),
+        child: Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2, color: kAccent),
+          ),
+        ),
+      ),
+      error: (e, _) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text('获取 $title 版本失败：$e', style: const TextStyle(fontSize: 12.5, color: kDanger)),
+      ),
+    );
   }
 }
 

@@ -392,11 +392,11 @@ pub async fn complete_version(
         }
         Err(e) => {
             if !e.to_string().contains("已取消") {
-                em.send(&InstallProgressEvent {
-                    phase: "failed".into(),
-                    message: format!("补全失败: {e}"),
-                    progress: 0.0,
-                });
+                em.send(&InstallProgressEvent::basic(
+                    "failed",
+                    &format!("补全失败: {e}"),
+                    0.0,
+                ));
             }
             Err(e)
         }
