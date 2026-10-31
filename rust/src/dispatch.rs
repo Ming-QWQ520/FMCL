@@ -76,6 +76,14 @@ pub async fn dispatch(method: &str, v: Value, em: Emitter) -> R {
             crate::api::app::open_path(get_str(&v, "path"))?;
             Ok(Value::Null)
         }
+        "log_app" => {
+            crate::api::app::log_app(
+                get_str(&v, "level"),
+                get_str(&v, "module"),
+                get_str(&v, "message"),
+            )?;
+            Ok(Value::Null)
+        }
 
         // ------------------------------------------------------------------
         // 设置

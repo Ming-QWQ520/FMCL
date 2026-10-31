@@ -34,6 +34,22 @@ const List<IconData> _icons = [
   Icons.settings_rounded,
 ];
 
+/// 背景图存在性缓存：existsSync 是同步 IO，不得在每次 rebuild 时执行
+/// （路径指向网络盘/失效 UNC 时可阻塞 UI 线程数百毫秒甚至秒级）。
+/// 按路径缓存一次判定结果；文件运行中被删除时由 Image.file 的
+/// errorBuilder 兜底，不影响显示。
+final Map<String, bool> _bgExistsCache = {};
+
+bool _bgFileExists(String path) {
+  return _bgExistsCache.putIfAbsent(path, () {
+    try {
+      return File(path).existsSync();
+    } catch (_) {
+      return false;
+    }
+  });
+}
+
 class _ShellScaffold extends ConsumerStatefulWidget {
   const _ShellScaffold();
 
@@ -137,7 +153,7 @@ class _ShellScaffoldState extends ConsumerState<_ShellScaffold> {
       children: [
         // 背景图（PCL2 式自定义背景）
         if (settings.backgroundImagePath.trim().isNotEmpty &&
-            File(settings.backgroundImagePath.trim()).existsSync())
+            _bgFileExists(settings.backgroundImagePath.trim()))
           Positioned.fill(
             child: Opacity(
               opacity: (settings.backgroundOpacity.clamp(0, 100)) / 100,

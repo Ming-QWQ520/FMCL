@@ -68,6 +68,12 @@ pub fn subscribe_app_logs() -> Result<()> {
     Ok(())
 }
 
+/// Dart 侧日志/全局错误转发落盘（写入 latest.log，与 Rust 日志同格式）。
+pub fn log_app(level: String, module: String, message: String) -> Result<()> {
+    crate::core::logging::log(&level, &module, &message);
+    Ok(())
+}
+
 /// 读取 latest.log 末尾若干行
 pub fn read_recent_logs(max_lines: i32) -> Result<Vec<LogEntry>> {
     let p = paths::paths();

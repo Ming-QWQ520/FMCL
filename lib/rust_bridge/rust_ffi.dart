@@ -161,7 +161,10 @@ class RustFfi {
     }
   }
 
-  /// 调用一个方法，返回最终结果（原始 JSON 值）
+  /// 调用一个方法，返回最终结果（原始 JSON 值）。
+  ///
+  /// 兜底超时 5 分钟：即使 Rust 侧响应意外丢失（回调异常等），
+  /// 也不让调用方永久挂起（正常业务流均有自身的超时与重试）。
   Future<dynamic> call(String method, [Map<String, dynamic>? params]) {
     ensureLoaded();
     final methodPtr = method.toNativeUtf8().cast<Char>();
@@ -173,7 +176,13 @@ class RustFfi {
     calloc.free(payloadPtr);
     final completer = Completer<dynamic>();
     _pending[id] = completer;
-    return completer.future;
+    return completer.future.timeout(
+      const Duration(minutes: 5),
+      onTimeout: () {
+        _pending.remove(id);
+        throw FmclBridgeException('调用超时: $method（Rust 后端无响应）');
+      },
+    );
   }
 
   /// 调用一个流式方法：返回过程事件流（response 时自动关闭；

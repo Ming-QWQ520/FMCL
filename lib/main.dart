@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -9,6 +10,13 @@ import 'app.dart';
 import 'rust_bridge/rust_bridge.dart' as rust;
 import 'state/app_providers.dart';
 
+/// 把 Dart 侧错误转发到 Rust 落盘（latest.log），静默失败。
+void _logToRustFile(String level, String module, String message) {
+  try {
+    rust.forwardLogToRust(level, module, message);
+  } catch (_) {}
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -16,11 +24,13 @@ Future<void> main() async {
   FlutterError.onError = (details) {
     try {
       debugPrint('[Flutter] ${details.exceptionAsString()}');
+      _logToRustFile('ERROR', 'Flutter', details.exceptionAsString());
     } catch (_) {}
   };
   PlatformDispatcher.instance.onError = (error, stack) {
     try {
       debugPrint('[Dart] $error\n$stack');
+      _logToRustFile('ERROR', 'Dart', '$error');
     } catch (_) {}
     return true;
   };
@@ -30,6 +40,7 @@ Future<void> main() async {
   ErrorWidget.builder = (details) {
     try {
       debugPrint('[Build] ${details.exceptionAsString()}');
+      _logToRustFile('ERROR', 'Build', details.exceptionAsString());
     } catch (_) {}
     return StartupErrorView(
       title: '界面渲染出错',
@@ -40,42 +51,45 @@ Future<void> main() async {
     );
   };
 
-  // ---------- 桌面窗口（无边框 + 自绘标题栏） ----------
+  // ---------- 桌面窗口（无边框 + 自绘标题栏，先创建但暂不显示） ----------
+  // 窗口延迟到 runApp 之后显示：初始化 Rust/设置期间（杀毒扫描 dll 可达数秒）
+  // 不再出现无内容的白窗，用户看到窗口时内容已就绪。
   if (!kIsWeb && Platform.isWindows) {
-    await windowManager.ensureInitialized();
-    const options = WindowOptions(
-      size: Size(1120, 720),
-      minimumSize: Size(960, 620),
-      center: true,
-      // 切勿设置 backgroundColor：
-      // window_manager 0.5.x 在 Windows 上经 SetWindowCompositionAttribute
-      // (ACCENT_ENABLE_GRADIENT) 实现背景色，不透明色会在新版 Flutter 的
-      // DirectComposition 渲染下盖住全部窗口内容 → 纯白屏
-      // （参考 leanflutter/window_manager#481，0.6.0 重写前无官方修复）。
-      // 不设置即为普通不透明 DWM 窗口，内容正常渲染。
-      skipTaskbar: false,
-      titleBarStyle: TitleBarStyle.hidden, // 自绘标题栏（runner 已处理 NCCALCSIZE）
-      title: 'FMCL',
-    );
-    await windowManager.waitUntilReadyToShow(options, () async {
-      try {
-        await windowManager.setTitle('FMCL - Fluent Minecraft Launcher');
-        await windowManager.show();
-        await windowManager.focus();
-      } catch (e, s) {
-        debugPrint('[Main] 窗口显示流程异常: $e\n$s');
-      }
-    });
+    try {
+      await windowManager.ensureInitialized();
+      const options = WindowOptions(
+        size: Size(1120, 720),
+        minimumSize: Size(960, 620),
+        center: true,
+        // 切勿设置 backgroundColor：
+        // window_manager 0.5.x 在 Windows 上经 SetWindowCompositionAttribute
+        // (ACCENT_ENABLE_GRADIENT) 实现背景色，不透明色会在新版 Flutter 的
+        // DirectComposition 渲染下盖住全部窗口内容 → 纯白屏
+        // （参考 leanflutter/window_manager#481，0.6.0 重写前无官方修复）。
+        // 不设置即为普通不透明 DWM 窗口，内容正常渲染。
+        skipTaskbar: false,
+        titleBarStyle: TitleBarStyle.hidden, // 自绘标题栏（runner 已处理 NCCALCSIZE）
+        title: 'FMCL',
+      );
+      await windowManager.waitUntilReadyToShow(options, () {});
+    } catch (e, s) {
+      debugPrint('[Main] 窗口初始化异常（继续启动）: $e\n$s');
+      _logToRustFile('ERROR', 'Main', '窗口初始化异常: $e');
+    }
   }
 
   // ---------- Rust 后端（目录解析 + 日志系统在此初始化） ----------
   // 桥初始化失败属致命错误（全部业务逻辑在 Rust 侧），但绝不能以白屏收场：
   // 捕获后直接渲染明确的错误页（常见原因：rust_lib_fmcl.dll 被杀毒软件
-  // 隔离或压缩包解压不完整）。
+  // 隔离或压缩包解压不完整）。20 秒超时兜底：即使响应意外挂起也给出错误页。
   String? fatalMessage;
   try {
-    await rust.initRustBridge();
-    final info = await rust.initApp();
+    await rust
+        .initRustBridge()
+        .timeout(const Duration(seconds: 20));
+    final info = await rust
+        .initApp()
+        .timeout(const Duration(seconds: 20));
     debugPrint(
       '[Main] FMCL ${info.appVersion} | FMCL 根: ${info.fmclRoot} | 默认游戏目录: ${info.defaultGameDir}',
     );
@@ -88,12 +102,16 @@ Future<void> main() async {
   final container = ProviderContainer();
   if (fatalMessage == null) {
     try {
-      await container.read(settingsProvider.notifier).reload();
+      await container
+          .read(settingsProvider.notifier)
+          .reload()
+          .timeout(const Duration(seconds: 20));
     } catch (e, s) {
       // 设置加载失败不致命：Notifier 已有默认值兜底，界面照常可用
       debugPrint('[Main] 设置加载失败（使用默认设置）: $e\n$s');
+      _logToRustFile('WARN', 'Main', '设置加载失败（使用默认设置）: $e');
     }
-    // ---------- 记忆的窗口尺寸（PCL2 式恢复上次窗口大小） ----------
+    // ---------- 记忆的窗口尺寸（PCL2 式恢复上次窗口大小，显示前完成避免闪烁） ----------
     if (!kIsWeb && Platform.isWindows) {
       try {
         final s = container.read(settingsProvider);
@@ -126,6 +144,17 @@ Future<void> main() async {
           : const FmclApp(),
     ),
   );
+
+  // ---------- 内容就绪后再显示窗口 ----------
+  if (!kIsWeb && Platform.isWindows) {
+    try {
+      await windowManager.setTitle('FMCL - Fluent Minecraft Launcher');
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (e, s) {
+      debugPrint('[Main] 窗口显示异常: $e\n$s');
+    }
+  }
 }
 
 /// 启动期错误可见化页面（release 模式下替代默认的"隐形"ErrorWidget）。

@@ -133,7 +133,15 @@ pub unsafe extern "C" fn fmcl_call(method: *const c_char, payload: *const c_char
 
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     RUNTIME.spawn(async move {
-        let result = crate::dispatch::dispatch(&method, payload, Emitter { call_id: id }).await;
+        // 内层 spawn + JoinError 兜底：即使 handler panic（任务中止），
+        // 也保证向 Dart 回传 ok:false，绝不让调用方永久挂起。
+        let result = tokio::task::spawn(async move {
+            crate::dispatch::dispatch(&method, payload, Emitter { call_id: id }).await
+        })
+        .await
+        .unwrap_or_else(|join_err| {
+            Err(anyhow::anyhow!("内部任务异常（已捕获）: {join_err}"))
+        });
         let response = match result {
             Ok(value) => {
                 let v = serde_json::to_string(&value).unwrap_or_else(|_| "null".into());

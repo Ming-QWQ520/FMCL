@@ -27,6 +27,20 @@ Future<void> initRustBridge() async {
   _rustReady = true;
 }
 
+/// 将 Dart 侧日志/全局错误转发到 Rust 落盘（写入 FMCL\logs\latest.log）。
+///
+/// fire-and-forget：绝不抛出、绝不阻塞调用方；桥未就绪时静默忽略。
+void forwardLogToRust(String level, String module, String message) {
+  if (!_rustReady) return;
+  try {
+    _ffi.call('log_app', {
+      'level': level,
+      'module': module,
+      'message': message,
+    }).catchError((_) {});
+  } catch (_) {}
+}
+
 // ---------------------------------------------------------------------------
 // 数据模型（字段名与 Rust serde camelCase 输出一一对应）
 // ---------------------------------------------------------------------------
