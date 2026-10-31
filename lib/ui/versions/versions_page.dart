@@ -1,15 +1,21 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import '../../core/error/app_exception.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/sources/download_source.dart';
+import '../../providers/install_task_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/version/local_version_manager.dart';
+import '../../services/launch/launch_service.dart';
 import '../../widgets/common.dart';
 import '../shell/custom_title_bar.dart';
 import '../tools/server_ping_dialog.dart';
+import 'import_version_dialog.dart';
 import 'modpack_import_dialog.dart';
 import 'version_settings_dialog.dart';
 
@@ -61,6 +67,12 @@ class _VersionsPageState extends ConsumerState<VersionsPage> {
               children: [
                 Text('版本管理', style: context.titleStyle),
                 const Spacer(),
+                OutlinedButton.icon(
+                  onPressed: () => showImportVersionDialog(context, ref),
+                  icon: const Icon(Icons.file_download_rounded, size: 18),
+                  label: const Text('导入版本'),
+                ),
+                const SizedBox(width: 8),
                 OutlinedButton.icon(
                   onPressed: () => showModpackImport(context),
                   icon: const Icon(Icons.inventory_2_rounded, size: 18),
@@ -213,6 +225,27 @@ class _VersionTile extends ConsumerWidget {
                               color: loaderColor),
                         ),
                       ),
+                      if (version.id != version.dirName) ...[
+                        const SizedBox(width: 6),
+                        Tooltip(
+                          message: '目录名：${version.dirName}',
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.blueGrey.withAlpha(24),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '外部导入',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.blueGrey.shade300),
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 3),
@@ -230,12 +263,24 @@ class _VersionTile extends ConsumerWidget {
                 ],
               ),
             ),
+            if (!version.hasJar)
+              TextButton.icon(
+                onPressed: () => _repair(context, ref),
+                icon: const Icon(Icons.build_circle_outlined, size: 18),
+                label: const Text('修复'),
+              ),
             PopupMenuButton<String>(
               icon: Icon(Icons.more_vert_rounded,
                   color: Theme.of(context).colorScheme.onSurface.withAlpha(120)),
               onSelected: (action) async {
                 final gameDir = ref.read(appSettingsProvider).gameDirectory;
                 switch (action) {
+                  case 'launch':
+                    _launch(context, ref);
+                  case 'repair':
+                    await _repair(context, ref);
+                  case 'export':
+                    await _export(context, ref, gameDir);
                   case 'settings':
                     await showVersionSettings(context, version.id);
                   case 'delete':
@@ -264,7 +309,10 @@ class _VersionTile extends ConsumerWidget {
                 }
               },
               itemBuilder: (context) => const [
+                PopupMenuItem(value: 'launch', child: Text('启动此版本')),
                 PopupMenuItem(value: 'open', child: Text('打开版本目录')),
+                PopupMenuItem(value: 'repair', child: Text('修复版本（补全 json / jar）')),
+                PopupMenuItem(value: 'export', child: Text('导出为 zip')),
                 PopupMenuItem(value: 'settings', child: Text('版本设置（隔离 / Java / 内存）')),
                 PopupMenuItem(value: 'delete', child: Text('删除版本')),
               ],
@@ -273,6 +321,75 @@ class _VersionTile extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  void _launch(BuildContext context, WidgetRef ref) {
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('正在启动 ${version.id}，可在「启动」页查看进度')));
+    ref.read(launchServiceProvider).launch(version.id).catchError((Object e) {
+      if (!context.mounted || e is CancelledException) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('启动失败: ${e is AppException ? e.userMessage : e}'),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ));
+    });
+  }
+
+  Future<void> _repair(BuildContext context, WidgetRef ref) async {
+    final task = ref.read(installTaskProvider.notifier);
+    final gameDir = ref.read(appSettingsProvider).gameDirectory;
+    final source = DownloadSources.of(
+        ref.read(appSettingsProvider).downloadSourceIndex == 1
+            ? DownloadSourceKind.official
+            : DownloadSourceKind.bmclapi);
+    task.begin('修复版本 ${version.id}');
+    try {
+      await LocalVersionManager.I.repairVersion(
+        gameDir,
+        version.id,
+        onProgress: task.update,
+        downloadManager: ref.read(downloadManagerProvider),
+        source: source,
+      );
+      task.end();
+      onRefresh();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('版本 ${version.id} 修复完成')));
+    } catch (e) {
+      task.end(failed: true);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('修复失败: ${e is AppException ? e.userMessage : e}'),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ));
+    } finally {
+      Future.delayed(const Duration(seconds: 3), () {
+        ref.read(installTaskProvider.notifier).clear();
+      });
+    }
+  }
+
+  Future<void> _export(
+      BuildContext context, WidgetRef ref, String gameDir) async {
+    final savePath = await FilePicker.platform.saveFile(
+      dialogTitle: '导出版本为 zip',
+      fileName: '${version.id}.zip',
+    );
+    if (savePath == null || !context.mounted) return;
+    try {
+      await LocalVersionManager.I.exportVersion(
+          gameDir, version.id, savePath);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已导出到 $savePath')));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('导出失败: ${e is AppException ? e.userMessage : e}'),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ));
+    }
   }
 
   void _openDir(String path) {

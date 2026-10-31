@@ -45,7 +45,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     (AppRoutes.home, Icons.play_circle_outline_rounded, '启动'),
     (AppRoutes.download, Icons.download_outlined, '下载'),
     (AppRoutes.versions, Icons.folder_copy_outlined, '版本'),
-    (AppRoutes.mods, Icons.extension_outlined, '模组'),
+    (AppRoutes.mods, Icons.apps_outlined, '资源'),
     (AppRoutes.accounts, Icons.people_outline, '账户'),
     (AppRoutes.settings, Icons.settings_outlined, '设置'),
   ];

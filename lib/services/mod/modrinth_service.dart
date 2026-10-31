@@ -19,17 +19,21 @@ class ModrinthService {
 
   static const String _api = AppConstants.modrinthApi;
 
-  /// 搜索模组
+  /// 搜索资源（模组 / 光影 / 资源包 / 地图 / 整合包）
+  ///
+  /// [projectType]：mod / shader / resourcepack / world / modpack（PCL·HMCL 式资源分类）
+  /// [loader] 仅对 mod 类型有效；其它类型资源不按加载器筛选。
   Future<List<ModrinthSearchHit>> search({
     required String query,
     String loader = 'fabric',
     String? gameVersion,
+    String projectType = 'mod',
     int limit = 20,
     int offset = 0,
   }) async {
     final facets = [
-      ['project_type:mod'],
-      ['categories:$loader'],
+      ['project_type:$projectType'],
+      if (projectType == 'mod') ['categories:$loader'],
       if (gameVersion != null && gameVersion.isNotEmpty)
         ['versions:$gameVersion'],
     ];

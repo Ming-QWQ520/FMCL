@@ -81,30 +81,62 @@ class AppSettingsNotifier extends Notifier<AppSettings> {
     await update(mutator(state));
   }
 
-  /// 首次启动：初始化默认游戏目录
+  /// 首次启动：初始化默认游戏目录。
+  ///
+  /// 借鉴 PCL2 / HMCL 的便携模式（需求：下载目录 = exe 所在目录\.minecraft）：
+  /// - Windows / Linux：可执行文件所在目录\.minecraft（随启动器移动）
+  /// - macOS：.app 包内不可写，回退 ~/minecraft（HMCL 式）
+  /// - Android：应用文档目录\.minecraft（无 exe 概念）
+  /// exe 目录不可写时自动回退到系统标准位置。
   Future<void> initGameDirectory() async {
     if (state.gameDirectory.isNotEmpty) return;
     String base;
     try {
       if (Platform.isWindows) {
-        base = p.join(
-          Platform.environment['APPDATA'] ?? '.', '.minecraft');
+        base = await _portableDir(
+          fallback: p.join(
+              Platform.environment['APPDATA'] ?? '.', '.minecraft'),
+        );
       } else if (Platform.isMacOS) {
         base = p.join(
           Platform.environment['HOME'] ?? '.', 'Library', 'Application Support',
-          'minecraft');
+          'minecraft',
+        );
       } else if (Platform.isAndroid) {
         // TODO(ANDROID)：接入 SAF / 应用私有目录策略，见 TODO.md #A-04
         final dir = await getApplicationDocumentsDirectory();
         base = p.join(dir.path, '.minecraft');
+      } else if (Platform.isLinux) {
+        // Flutter Linux 发行包：exe 与其依赖同目录，便携 .minecraft 就近创建
+        base = await _portableDir(
+          fallback: p.join(
+              Platform.environment['HOME'] ?? '.', '.minecraft'),
+        );
       } else {
         base = p.join(
-          Platform.environment['HOME'] ?? '.', '.minecraft');
+            Platform.environment['HOME'] ?? '.', '.minecraft');
       }
     } catch (_) {
       base = p.join(Directory.systemTemp.path, 'fmcl', '.minecraft');
     }
     await update(state.copyWith(gameDirectory: base));
+  }
+
+  /// 便携目录：exe 所在目录\.minecraft（PCL2 式），不可写则回退。
+  Future<String> _portableDir({required String fallback}) async {
+    try {
+      final exeDir = p.dirname(Platform.resolvedExecutable);
+      final dir = Directory(p.join(exeDir, '.minecraft'));
+      final probe = File(p.join(exeDir, '.fmcl_write_probe'));
+      probe.writeAsStringSync('ok', flush: true);
+      probe.deleteSync();
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      return dir.path;
+    } catch (e) {
+      AppLogger.warn(
+          'Settings', 'exe 目录不可写，回退系统目录: $e');
+      return fallback;
+    }
   }
 }
 

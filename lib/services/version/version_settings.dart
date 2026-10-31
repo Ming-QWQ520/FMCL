@@ -237,6 +237,19 @@ class VersionSettingsService {
         ? p.join(gameDir, 'versions', versionId, 'mods')
         : p.join(gameDir, 'mods');
   }
+
+  /// 该版本的任意子目录（随隔离变化）。
+  ///
+  /// 借鉴 PCL2「版本隔离」的统一推广：mods / shaderpacks / resourcepacks /
+  /// saves / config 等均落在生效游戏目录内。
+  String dirFor(
+      AppSettings global, String gameDir, String versionId, String sub) {
+    final s = loadSync(gameDir, versionId);
+    final isolated = s.isolation ?? global.versionIsolation;
+    return isolated
+        ? p.join(gameDir, 'versions', versionId, sub)
+        : p.join(gameDir, sub);
+  }
 }
 
 /// Provider

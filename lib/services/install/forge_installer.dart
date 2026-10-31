@@ -69,6 +69,57 @@ class ForgeInstaller extends BaseInstaller {
     }
   }
 
+  /// 获取全部可用版本（PCL 式完整版本选择体验）。
+  ///
+  /// - Forge：BMCLAPI 按游戏版本列出全部构建，失败时回退 promotions
+  /// - NeoForge：解析 maven-metadata.xml，按游戏版本前缀过滤（1.21.4 → 21.4.*）
+  Future<List<String>> fetchAllVersions(String gameVersion) async {
+    if (isNeoForge) {
+      try {
+        final url = '${AppConstants.neoforgeMaven}'
+            '/net/neoforged/neoforge/maven-metadata.xml';
+        final data = await HttpService.I.getBytesWithFallback(url);
+        final text = utf8.decode(data);
+        final all = RegExp(r'<version>([^<]+)</version>')
+            .allMatches(text)
+            .map((m) => m.group(1)!)
+            .toList();
+        final prefix = _neoForgePrefix(gameVersion);
+        final filtered = all
+            .where((v) => v.startsWith('$prefix.'))
+            .toList()
+            .reversed
+            .toList();
+        if (filtered.isNotEmpty) return filtered;
+      } catch (e) {
+        AppLogger.warn('NeoForge', '获取全版本列表失败，回退 promotions: $e');
+      }
+      return fetchRecommendedVersions(gameVersion);
+    }
+
+    try {
+      final raw = await HttpService.I.getJsonWithFallback(
+          'https://bmclapi2.bangbang93.com/forge/minecraft/$gameVersion');
+      final list = (raw as List).cast<Map<String, dynamic>>();
+      final versions = list
+          .map((e) => e['version']?.toString() ?? '')
+          .where((v) => v.isNotEmpty)
+          .toList();
+      if (versions.isNotEmpty) return versions;
+    } catch (e) {
+      AppLogger.warn('Forge', '获取全版本列表失败，回退 promotions: $e');
+    }
+    return fetchRecommendedVersions(gameVersion);
+  }
+
+  /// MC 版本 → NeoForge 版本前缀（1.21.4 → 21.4，1.21 → 21.0）
+  String _neoForgePrefix(String mcVersion) {
+    final parts = mcVersion.split('.');
+    if (parts.length >= 3) return '${parts[1]}.${parts[2]}';
+    if (parts.length == 2) return '${parts[1]}.0';
+    return mcVersion;
+  }
+
   /// 安装入口。返回最终版本 id。
   Future<String> install({
     required String gameVersion,

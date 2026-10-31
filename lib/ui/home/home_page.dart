@@ -1,18 +1,24 @@
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path/path.dart' as pathpkg;
 
 import '../../core/error/app_exception.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/game_account.dart';
 import '../../providers/account_provider.dart';
+import '../../providers/install_task_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../services/install/rust_install_service.dart';
 import '../../services/launch/launch_service.dart';
 import '../../services/version/local_version_manager.dart';
 import '../../widgets/common.dart';
 import '../shell/custom_title_bar.dart';
+import '../versions/import_version_dialog.dart';
 
 /// 启动页（主页）：版本选择 + 大启动按钮 + 运行状态与日志。
 class HomePage extends ConsumerStatefulWidget {
@@ -182,7 +188,16 @@ class _HomePageState extends ConsumerState<HomePage> {
                             ],
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 12),
+
+                        // ---------- 快捷入口（PCL2 主页式功能卡） ----------
+                        _QuickActions(onSnack: _snack),
+                        const SizedBox(height: 8),
+
+                        // ---------- 全局安装进度（PCL2 式） ----------
+                        const _HomeInstallProgress(),
+
+                        const SizedBox(height: 12),
 
                         // ---------- 启动按钮（支持多实例并发） ----------
                         _LaunchButton(
@@ -221,6 +236,187 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (hour < 14) return '中午好，冒险者';
     if (hour < 18) return '下午好，冒险者';
     return '晚上好，冒险者';
+  }
+}
+
+/// 快捷入口卡（PCL2 主页式：下载 / 文件夹 / 导入 / 日志）
+class _QuickActions extends ConsumerWidget {
+  final void Function(String msg, {bool error}) onSnack;
+
+  const _QuickActions({required this.onSnack});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = [
+      (
+        Icons.download_rounded,
+        '下载游戏',
+        '原版 / 加载器 / 整合包',
+        () => context.go(AppRoutes.download),
+      ),
+      (
+        Icons.folder_open_rounded,
+        '打开游戏目录',
+        null, // 副标题动态填 .minecraft 路径
+        () => _openGameDir(context, ref),
+      ),
+      (
+        Icons.file_download_rounded,
+        '导入版本',
+        '从文件夹 / zip 导入',
+        () async {
+          final id = await showImportVersionDialog(context, ref);
+          if (id != null) onSnack('版本「$id」已导入，可直接启动');
+        },
+      ),
+      (
+        Icons.terminal_rounded,
+        '日志中心',
+        '游戏日志 / 崩溃报告',
+        () => context.push(AppRoutes.logs),
+      ),
+    ];
+
+    return Row(
+      children: [
+        for (final it in items) ...[
+          Expanded(
+            child: _QuickCard(
+              icon: it.$1,
+              title: it.$2,
+              subtitle: it.$3 ?? _gameDirLabel(ref),
+              onTap: it.$4,
+            ),
+          ),
+          const SizedBox(width: 10),
+        ],
+      ],
+    );
+  }
+
+  String _gameDirLabel(WidgetRef ref) {
+    final settings = ref.read(appSettingsProvider);
+    final dir = settings.gameDirectory;
+    if (dir.isEmpty) return '.minecraft';
+    final name = pathpkg.basename(dir);
+    return name == '.minecraft' ? '便携模式' : name;
+  }
+
+  void _openGameDir(BuildContext context, WidgetRef ref) {
+    final dir = ref.read(appSettingsProvider).gameDirectory;
+    if (!Directory(dir).existsSync()) {
+      Directory(dir).createSync(recursive: true);
+    }
+    if (Platform.isWindows) {
+      Process.run('explorer', [dir]);
+    } else if (Platform.isMacOS) {
+      Process.run('open', [dir]);
+    } else if (Platform.isLinux) {
+      Process.run('xdg-open', [dir]);
+    } else {
+      onSnack('游戏目录：$dir');
+    }
+  }
+}
+
+class _QuickCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _QuickCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color:
+                  Theme.of(context).colorScheme.primary.withAlpha(24),
+              borderRadius: BorderRadius.circular(AppTheme.radiusS),
+            ),
+            child: Icon(icon,
+                size: 20, color: Theme.of(context).colorScheme.primary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 13.5, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.captionStyle),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 主页全局安装进度（PCL2 式：安装中在启动按钮上方显示进度条）
+class _HomeInstallProgress extends ConsumerWidget {
+  const _HomeInstallProgress();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final task = ref.watch(installTaskProvider);
+    if (!task.active) return const SizedBox.shrink();
+    return AppCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.4,
+              value: task.progress,
+              color: task.failed
+                  ? Theme.of(context).colorScheme.error
+                  : Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '${task.title} · ${task.message}',
+              style: const TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton(
+            onPressed: () => context.go(AppRoutes.download),
+            child: const Text('查看'),
+          ),
+          TextButton(
+            onPressed: RustInstallService.cancelLast,
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

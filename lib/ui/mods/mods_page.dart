@@ -5,12 +5,15 @@ import '../../core/error/app_exception.dart';
 import '../../core/theme/app_theme.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/mod/modrinth_service.dart';
+import '../../services/resource/resource_service.dart';
 import '../../services/version/local_version_manager.dart';
-import '../../services/version/version_settings.dart';
 import '../../widgets/common.dart';
 import '../shell/custom_title_bar.dart';
 
-/// 模组页：本地模组管理 + Modrinth 在线安装。
+/// 资源中心（借鉴 HMCL「资源下载」：模组 / 光影 / 资源包 / 地图）。
+///
+/// 资源按版本隔离规则安装到生效游戏目录的对应子目录；
+/// 模组保留启停与前置依赖解析能力。
 class ModsPage extends ConsumerStatefulWidget {
   const ModsPage({super.key});
 
@@ -21,20 +24,31 @@ class ModsPage extends ConsumerStatefulWidget {
 class _ModsPageState extends ConsumerState<ModsPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tab = TabController(length: 2, vsync: this);
-  List<LocalModEntry> _mods = [];
-  bool _loadingMods = true;
+  ResourceKind _kind = ResourceKind.mod;
   String? _selectedVersion;
 
-  // Modrinth 搜索
+  // 在线搜索
   final _searchCtrl = TextEditingController();
   List<ModrinthSearchHit> _hits = [];
   bool _searching = false;
+  bool _installingResource = false;
   String _loaderFilter = 'fabric';
+
+  // 本地内容
+  List<LocalResourceEntry> _local = [];
+  bool _loadingLocal = true;
 
   @override
   void initState() {
     super.initState();
     _initVersion();
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _initVersion() async {
@@ -44,32 +58,39 @@ class _ModsPageState extends ConsumerState<ModsPage>
     setState(() {
       _selectedVersion = versions.firstOrNull?.id;
     });
-    _loadMods();
+    _loadLocal();
   }
 
-  Future<void> _loadMods() async {
+  Future<void> _loadLocal() async {
     final v = _selectedVersion;
     if (v == null) {
-      setState(() => _loadingMods = false);
+      setState(() => _loadingLocal = false);
       return;
     }
-    final gameDir = ref.read(appSettingsProvider).gameDirectory;
-    final modsDir = VersionSettingsService.I.modsDirFor(
-        ref.read(appSettingsProvider), gameDir, v);
-    final mods = await LocalModService.I.listMods(v, gameDir, modsDir: modsDir);
+    final settings = ref.read(appSettingsProvider);
+    final list = await ref.read(resourceInstallServiceProvider).listLocal(
+          global: settings,
+          gameDir: settings.gameDirectory,
+          versionId: v,
+          kind: _kind,
+        );
     if (!mounted) return;
     setState(() {
-      _mods = mods;
-      _loadingMods = false;
+      _local = list;
+      _loadingLocal = false;
     });
   }
 
   Future<void> _search() async {
     setState(() => _searching = true);
     try {
+      final gameVer =
+          ResourceInstallService.guessGameVersion(_selectedVersion ?? '');
       final hits = await ModrinthService.I.search(
         query: _searchCtrl.text.trim(),
-        loader: _loaderFilter,
+        loader: _kind == ResourceKind.mod ? _loaderFilter : '',
+        gameVersion: _kind == ResourceKind.mod ? gameVer : null,
+        projectType: _kind.apiType,
       );
       if (!mounted) return;
       setState(() {
@@ -85,6 +106,45 @@ class _ModsPageState extends ConsumerState<ModsPage>
     }
   }
 
+  Future<void> _installResource(ModrinthSearchHit hit) async {
+    final versionId = _selectedVersion;
+    if (versionId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请先在顶部选择目标版本')));
+      return;
+    }
+    setState(() => _installingResource = true);
+    try {
+      final gameVer = ResourceInstallService.guessGameVersion(versionId);
+      final message = await ref.read(resourceInstallServiceProvider).install(
+            hit: hit,
+            kind: _kind,
+            versionId: versionId,
+            gameVersion: gameVer,
+            loader: _loaderFilter,
+            onProgress: (m) {
+              if (!mounted) return;
+              ScaffoldMessenger.of(context)
+                ..clearSnackBars()
+                ..showSnackBar(SnackBar(content: Text(m),
+                    duration: const Duration(seconds: 1)));
+            },
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+      _loadLocal();
+    } on AppException catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.userMessage)));
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('安装失败: $e')));
+    } finally {
+      if (mounted) setState(() => _installingResource = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -97,7 +157,7 @@ class _ModsPageState extends ConsumerState<ModsPage>
               children: [
                 Row(
                   children: [
-                    Text('模组', style: context.titleStyle),
+                    Text('资源中心', style: context.titleStyle),
                     const Spacer(),
                     // 版本选择
                     FutureBuilder<List<LocalVersion>>(
@@ -114,26 +174,49 @@ class _ModsPageState extends ConsumerState<ModsPage>
                           items: versions
                               .map((v) => DropdownMenuItem(
                                     value: v.id,
-                                    child: Text(v.id, style: const TextStyle(fontSize: 13)),
+                                    child: Text(v.id,
+                                        style:
+                                            const TextStyle(fontSize: 13)),
                                   ))
                               .toList(),
                           onChanged: (v) {
                             setState(() {
                               _selectedVersion = v;
-                              _loadingMods = true;
+                              _loadingLocal = true;
                             });
-                            _loadMods();
+                            _loadLocal();
                           },
                         );
                       },
                     ),
                   ],
                 ),
+                const SizedBox(height: 10),
+                // 资源类别选择（HMCL 式分类）
+                SegmentedButton<ResourceKind>(
+                  segments: [
+                    for (final k in ResourceKind.values)
+                      ButtonSegment(
+                        value: k,
+                        label: Text(k.label),
+                        icon: Icon(_iconOf(k), size: 17),
+                      ),
+                  ],
+                  selected: {_kind},
+                  onSelectionChanged: (s) {
+                    setState(() {
+                      _kind = s.first;
+                      _loadingLocal = true;
+                      _hits = [];
+                    });
+                    _loadLocal();
+                  },
+                ),
                 TabBar(
                   controller: _tab,
                   tabs: const [
-                    Tab(text: '本地模组'),
                     Tab(text: '在线安装 (Modrinth)'),
+                    Tab(text: '本地管理'),
                   ],
                 ),
               ],
@@ -143,8 +226,8 @@ class _ModsPageState extends ConsumerState<ModsPage>
             child: TabBarView(
               controller: _tab,
               children: [
-                _buildLocalMods(),
-                _buildModrinth(),
+                _buildOnline(),
+                _buildLocal(),
               ],
             ),
           ),
@@ -153,104 +236,44 @@ class _ModsPageState extends ConsumerState<ModsPage>
     );
   }
 
-  Widget _buildLocalMods() {
-    if (_loadingMods) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_selectedVersion == null) {
-      return Center(child: Text('请先安装一个版本', style: context.captionStyle));
-    }
-    if (_mods.isEmpty) {
-      return Center(child: Text('该版本尚未安装任何模组', style: context.captionStyle));
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.all(24),
-      itemCount: _mods.length,
-      itemBuilder: (context, i) {
-        final mod = _mods[i];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: AppCard(
-            child: Row(
-              children: [
-                Icon(
-                  Icons.extension_rounded,
-                  color: mod.enabled
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.grey,
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        mod.fileName,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          decoration: mod.enabled
-                              ? null
-                              : TextDecoration.lineThrough,
-                        ),
-                      ),
-                      Text(
-                        '${formatBytes(mod.sizeBytes)}'
-                        '${mod.enabled ? '' : ' · 已停用'}',
-                        style: context.captionStyle,
-                      ),
-                    ],
-                  ),
-                ),
-                Switch(
-                  value: mod.enabled,
-                  onChanged: (v) async {
-                    await LocalModService.I.setEnabled(mod, v);
-                    _loadMods();
-                  },
-                ),
-                IconButton(
-                  icon: Icon(Icons.delete_outline_rounded,
-                      color: Theme.of(context).colorScheme.error.withAlpha(160)),
-                  onPressed: () async {
-                    await LocalModService.I.delete(mod);
-                    _loadMods();
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+  IconData _iconOf(ResourceKind k) => switch (k) {
+        ResourceKind.mod => Icons.extension_rounded,
+        ResourceKind.shader => Icons.auto_awesome_rounded,
+        ResourceKind.resourcepack => Icons.palette_rounded,
+        ResourceKind.world => Icons.public_rounded,
+      };
 
-  Widget _buildModrinth() {
+  // ---------------- 在线安装 ----------------
+
+  Widget _buildOnline() {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
           child: Row(
             children: [
               Expanded(
                 child: TextField(
                   controller: _searchCtrl,
                   onSubmitted: (_) => _search(),
-                  decoration: const InputDecoration(
-                    hintText: '搜索模组名称（如 sodium / iris）',
-                    prefixIcon: Icon(Icons.search_rounded),
+                  decoration: InputDecoration(
+                    hintText: '搜索${_kind.label}（Modrinth）',
+                    prefixIcon: const Icon(Icons.search_rounded),
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
-              DropdownButton<String>(
-                value: _loaderFilter,
-                underline: const SizedBox.shrink(),
-                items: const ['fabric', 'forge', 'neoforge', 'quilt']
-                    .map((l) => DropdownMenuItem(value: l, child: Text(l)))
-                    .toList(),
-                onChanged: (v) => setState(() => _loaderFilter = v ?? 'fabric'),
-              ),
+              if (_kind == ResourceKind.mod) ...[
+                const SizedBox(width: 10),
+                DropdownButton<String>(
+                  value: _loaderFilter,
+                  underline: const SizedBox.shrink(),
+                  items: const ['fabric', 'forge', 'neoforge', 'quilt']
+                      .map((l) => DropdownMenuItem(value: l, child: Text(l)))
+                      .toList(),
+                  onChanged: (v) =>
+                      setState(() => _loaderFilter = v ?? 'fabric'),
+                ),
+              ],
               const SizedBox(width: 8),
               FilledButton(
                 onPressed: _searching ? null : _search,
@@ -263,13 +286,16 @@ class _ModsPageState extends ConsumerState<ModsPage>
           child: !_searching
               ? (_hits.isEmpty
                   ? Center(
-                      child: Text('输入关键词开始搜索',
+                      child: Text('输入关键词开始搜索${_kind.label}',
                           style: context.captionStyle))
                   : ListView.builder(
                       padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
                       itemCount: _hits.length,
-                      itemBuilder: (context, i) =>
-                          _ModrinthHitTile(hit: _hits[i], onInstall: _installMod),
+                      itemBuilder: (context, i) => _ResourceHitTile(
+                        hit: _hits[i],
+                        busy: _installingResource,
+                        onInstall: _installResource,
+                      ),
                     ))
               : const Center(child: CircularProgressIndicator()),
         ),
@@ -277,80 +303,124 @@ class _ModsPageState extends ConsumerState<ModsPage>
     );
   }
 
-  Future<void> _installMod(ModrinthSearchHit hit) async {
-    final versionId = _selectedVersion;
-    if (versionId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('请先在顶部选择目标版本')));
-      return;
+  // ---------------- 本地管理 ----------------
+
+  Widget _buildLocal() {
+    if (_loadingLocal) {
+      return const Center(child: CircularProgressIndicator());
     }
-    try {
-      // 1. 版本列表（按当前版本过滤）
-      final gameVer = _guessGameVersion(versionId);
-      final versions = await ModrinthService.I.getVersions(
-        projectId: hit.projectId,
-        loader: _loaderFilter,
-        gameVersion: gameVer,
-      );
-      if (versions.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content:
-                Text('没有找到适配 $gameVer ($_loaderFilter) 的版本')));
-        return;
-      }
-      final modVersion = versions.first;
-      final primary = modVersion.primaryFile;
-      if (primary == null) return;
-
-      // 2. 依赖解析
-      final deps = await ModrinthService.I.resolveDependencyTree(
-        version: modVersion,
-        loader: _loaderFilter,
-        gameVersion: gameVer,
-      );
-
-      // 3. 下载主文件 + 依赖
-      final settings = ref.read(appSettingsProvider);
-      final modsDir = VersionSettingsService.I.modsDirFor(
-          settings, settings.gameDirectory, versionId);
-      await ModrinthService.I.downloadMod(
-        url: primary.url,
-        savePath: '$modsDir/${primary.filename}',
-      );
-      for (final dep in deps) {
-        await ModrinthService.I.downloadMod(
-          url: dep.url,
-          savePath: '$modsDir/${dep.fileName}',
+    if (_selectedVersion == null) {
+      return Center(child: Text('请先安装一个版本', style: context.captionStyle));
+    }
+    if (_local.isEmpty) {
+      return Center(
+          child: Text('该版本暂无本地${_kind.label}',
+              style: context.captionStyle));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(24),
+      itemCount: _local.length,
+      itemBuilder: (context, i) {
+        final item = _local[i];
+        final isMod = _kind == ResourceKind.mod;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: AppCard(
+            child: Row(
+              children: [
+                Icon(
+                  item.isDirectory
+                      ? Icons.public_rounded
+                      : _iconOf(_kind),
+                  color: (isMod && !item.enabled)
+                      ? Colors.grey
+                      : Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.displayName,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          decoration:
+                              (isMod && !item.enabled)
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                        ),
+                      ),
+                      Text(
+                        [
+                          formatBytes(item.sizeBytes),
+                          if (item.isDirectory && !item.valid) '缺少 level.dat',
+                          if (isMod && !item.enabled) '已停用',
+                        ].join(' · '),
+                        style: context.captionStyle,
+                      ),
+                    ],
+                  ),
+                ),
+                if (isMod && !item.isDirectory)
+                  Switch(
+                    value: item.enabled,
+                    onChanged: (v) async {
+                      await ref
+                          .read(resourceInstallServiceProvider)
+                          .setEnabled(item, v);
+                      _loadLocal();
+                    },
+                  ),
+                IconButton(
+                  icon: Icon(Icons.delete_outline_rounded,
+                      color:
+                          Theme.of(context).colorScheme.error.withAlpha(160)),
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text('删除${_kind.label}'),
+                        content: Text(
+                            '确定删除「${item.displayName}」吗？此操作不可恢复。'),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('取消')),
+                          FilledButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              child: const Text('删除')),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      await ref
+                          .read(resourceInstallServiceProvider)
+                          .deleteLocal(item);
+                      _loadLocal();
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
         );
-      }
-      _loadMods();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            '已安装 ${primary.filename}${deps.isEmpty ? '' : '（含 ${deps.length} 个前置依赖）'}'),
-      ));
-    } on AppException catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.userMessage)));
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('安装失败: $e')));
-    }
-  }
-
-  /// 从版本 id 猜测游戏版本（如 fmcl-fabric-1.20.1-0.15.11 → 1.20.1）
-  String _guessGameVersion(String versionId) {
-    final m =
-        RegExp(r'(\d+\.\d+(\.\d+)?)').allMatches(versionId).toList();
-    if (m.isNotEmpty) return m.first.group(1)!;
-    return versionId;
+      },
+    );
   }
 }
 
-class _ModrinthHitTile extends StatelessWidget {
+class _ResourceHitTile extends StatelessWidget {
   final ModrinthSearchHit hit;
+  final bool busy;
   final ValueChanged<ModrinthSearchHit> onInstall;
 
-  const _ModrinthHitTile({required this.hit, required this.onInstall});
+  const _ResourceHitTile({
+    required this.hit,
+    required this.busy,
+    required this.onInstall,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -366,7 +436,8 @@ class _ModrinthHitTile extends StatelessWidget {
                   hit.iconUrl!,
                   width: 44,
                   height: 44,
-                  errorBuilder: (_, _, _) => const Icon(Icons.extension_rounded),
+                  errorBuilder: (_, _, _) =>
+                      const Icon(Icons.extension_rounded),
                 ),
               )
             else
@@ -387,15 +458,21 @@ class _ModrinthHitTile extends StatelessWidget {
                     style: context.captionStyle,
                   ),
                   Text(
-                    '${hit.downloads} 次下载 · ${hit.categories.take(3).join(' / ')}',
+                    '${hit.downloads} 次下载'
+                    '${hit.categories.isEmpty ? '' : ' · ${hit.categories.take(3).join(' / ')}'}',
                     style: context.captionStyle,
                   ),
                 ],
               ),
             ),
             FilledButton.tonal(
-              onPressed: () => onInstall(hit),
-              child: const Text('安装'),
+              onPressed: busy ? null : () => onInstall(hit),
+              child: busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('安装'),
             ),
           ],
         ),
