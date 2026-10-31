@@ -307,7 +307,7 @@ pub async fn fetch_loader_versions(
                     LoaderVersionInfo {
                         version: format!("{typ}_{patch}"),
                         is_recommended: false,
-                        is_preview,
+                        is_preview: preview,
                     }
                 })
                 .collect())

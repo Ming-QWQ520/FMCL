@@ -68,10 +68,20 @@ jobs:
       - name: Generate bridge bindings
         run: flutter_rust_bridge_codegen generate
 
+      # 快速失败：在进入耗时 2 分钟的 flutter build 前，先完整检查 Rust 代码
+      - name: Cargo check (fast fail)
+        shell: pwsh
+        run: |
+          cargo check 2>&1 | Tee-Object -Variable cargoOut
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host $cargoOut
+            exit 1
+          }
+
       - name: Build Windows release
         env:
           CARGOKIT_VERBOSE: '1'
-        run: flutter build windows --release
+        run: flutter build windows --release --verbose
 
       - name: Package portable zip
         shell: pwsh
