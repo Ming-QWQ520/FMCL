@@ -41,12 +41,20 @@ static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
         .expect("创建 tokio 运行时失败")
 });
 
-/// 在任意线程安全地投递一条事件 JSON
+/// 在任意线程安全地投递一条事件 JSON。
+///
+/// 内存所有权约定（关键！）：Dart 侧事件回调是 `NativeCallable.listener`，
+/// 它只把指针值异步投递到 Dart isolate —— 回调返回后 Dart 才会读取该指针
+/// 指向的内存。因此这里绝不能传 `CString::as_ptr()`（函数返回后字符串
+/// 立即被释放，Dart 读到已释放内存：轻则 JSON 解析失败被静默吞掉、表现为
+/// 所有异步调用的响应随机丢失 —— 登录卡住/下载转圈/关窗无反应；重则崩溃）。
+/// 必须用 `into_raw` 转移交出所有权，由 Dart 侧读完后再经 `fmcl_free` 归还。
 pub fn emit_event(json: &str) {
     let guard = EVENT_CB.lock().unwrap();
     if let Some(cb) = *guard {
         if let Ok(c) = CString::new(json) {
-            cb(c.as_ptr());
+            let raw = c.into_raw();
+            cb(raw);
         }
     }
 }
@@ -88,7 +96,10 @@ pub extern "C" fn fmcl_ping() -> i64 {
 }
 
 /// 桥接 ABI 版本（与 Dart 侧 RustFfi.abiVersion 严格一致）
-pub const FMCL_ABI_VERSION: u32 = 1;
+///
+/// v2：事件内存所有权变更 —— emit_event 改为 into_raw 移交，
+/// Dart 读后经 fmcl_free 归还（v1 存在 use-after-free）。
+pub const FMCL_ABI_VERSION: u32 = 2;
 
 /// 初始化运行时与全局转发（幂等）。返回 0 表示成功。
 #[no_mangle]
@@ -182,6 +193,11 @@ pub unsafe extern "C" fn fmcl_call(method: *const c_char, payload: *const c_char
             }
         };
         crate::log_info!("Core", "响应已回传 id={id} ok={ok}");
+        if let Err(e) = &result {
+            // 失败响应必须记录错误文本：ok=false 只有 id 时无法排查
+            // （例：yggdrasil 登录失败原因只存在于错误字符串里）
+            crate::log_warn!("Core", "调用失败 id={id} error={e}");
+        }
         emit_event(&response);
     });
     id

@@ -1,196 +1,331 @@
-/// 主页（对齐 PCL2 布局）：
-/// 左侧：大启动按钮（含当前版本）+ 当前账户卡 + 快捷入口 2x2 + 运行中会话
-/// 右侧：PCL2 风格公告面板（蓝色标题栏 + 公告内容）
+/// 主页 —— 100% 对齐 PCL2 启动页（PageLaunchLeft / PageLaunchRight）：
+///
+/// 左栏（宽 300，PCL2 PageLaunchLeft 原样还原）：
+///   1. 顶部登录方式药丸（CornerRadius 13 / 高 27，点击展开：正版 / 离线 / 外置）
+///   2. 中部登录区（PanLogin）：已登录 → 头像 + 用户名 + 登录方式；
+///      未登录 → 按所选方式显示登录表单
+///   3. 大启动按钮（Height 54 / Margin 20，主题色；版本名以 11 号字
+///      叠放在按钮内部底部 —— PCL2 LabVersion）
+///   4. 底部「版本选择」「版本设置」按钮（Height 35 —— PCL2 BtnVersion/BtnMore）
+///
+/// 右栏（PCL2 PageLaunchRight）：启动日志卡片 + 运行中会话；
+/// 没有公告面板（按需求移除）。
 library;
-
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../rust_bridge/rust_bridge.dart' as rust;
 import '../../state/app_providers.dart';
-import '../dialogs/install_task_dialog.dart';
+import '../dialogs/login_dialogs.dart';
 import '../dialogs/version_settings_dialog.dart';
 import '../theme/pcl_theme.dart';
 import '../widgets/common.dart';
 
-/// PCL2 启动按钮的标志性绿色
+/// PCL2 启动按钮绿（与截图一致）
 const Color _launchGreen = Color(0xFF3DA039);
 const Color _launchGreenHover = Color(0xFF358D32);
 const Color _launchGreenDeep = Color(0xFF2E7C2B);
 
-class HomePage extends ConsumerWidget {
+/// 登录方式（PCL2 LoginType）
+enum _AuthType { microsoft, offline, yggdrasil }
+
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final versions = ref.watch(localVersionsProvider);
+  ConsumerState<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends ConsumerState<HomePage> {
+  /// 当前登录方式选择（未选中时跟随当前账户）
+  _AuthType? _authOverride;
+
+  @override
+  Widget build(BuildContext context) {
     final selected = ref.watch(selectedVersionProvider);
+    final accounts = ref.watch(accountsProvider);
+    final cur = accounts.current;
     final sessions = ref.watch(launchSessionsProvider);
     final active = sessions.where((s) => s.isActive).toList();
 
+    // 登录方式：优先手动选择，否则跟随当前账户类型
+    final authType = _authOverride ?? _typeOf(cur);
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+      padding: const EdgeInsets.all(0),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ==================== 左侧主区 ====================
-          Expanded(
+          // ==================== 左栏（PCL2 PageLaunchLeft，宽 300） ====================
+          Container(
+            width: 300,
+            // 左栏加深底色：保证白色文字与蓝色元素在任意背景图/纯色下可读
+            //（PCL2 左栏同样为暗色半透明覆盖在背景图上）
+            color: Colors.black.withAlpha(90),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ---------- 启动区（大按钮 + 账户卡） ----------
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: _LaunchButton(selected: selected)),
-                    const SizedBox(width: 10),
-                    const SizedBox(width: 216, child: _AccountCard()),
-                  ],
+                const SizedBox(height: 24),
+                // ---------- 1. 登录方式药丸（可展开单选） ----------
+                _AuthTypePill(
+                  authType: authType,
+                  account: cur,
+                  onPick: (t) => setState(() => _authOverride = t),
                 ),
-                const SizedBox(height: 10),
-                // ---------- 快捷入口 2x2（PCL2 主页样式） ----------
+                // ---------- 2. 登录区 / 账户区（PanLogin） ----------
                 Expanded(
-                  child: _QuickGrid(selected: selected, versions: versions),
+                  child: _LoginArea(authType: authType, account: cur),
                 ),
-                // ---------- 运行中的游戏（有会话时显示） ----------
-                if (active.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  _RunningSessions(sessions: active),
-                ],
+                // ---------- 3. 大启动按钮（Height 54，版本名内嵌底部） ----------
+                _LaunchButton(selected: selected, activeCount: active.length),
+                const SizedBox(height: 10),
+                // ---------- 4. 版本选择 / 版本设置（Height 35） ----------
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: PclButton(
+                          text: '版本选择',
+                          height: 35,
+                          fontSize: 13.5,
+                          onTap: () => showDialog<void>(
+                            context: context,
+                            builder: (_) => const _VersionSelectorDialog(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      PclButton(
+                        text: '版本设置',
+                        height: 35,
+                        fontSize: 13.5,
+                        onTap: () {
+                          if (selected.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('请先选择版本')),
+                            );
+                            return;
+                          }
+                          showDialog<void>(
+                            context: context,
+                            builder: (_) =>
+                                VersionSettingsDialog(versionId: selected),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
-          // ==================== 右侧公告 ====================
-          const SizedBox(width: 320, child: _AnnouncementPanel()),
+          // ==================== 右栏（PCL2 PageLaunchRight） ====================
+          Expanded(
+            child: _LaunchLogPanel(activeSessions: active),
+          ),
         ],
       ),
     );
   }
+
+  static _AuthType _typeOf(rust.Account? a) {
+    return switch (a?.accountType) {
+      'microsoft' => _AuthType.microsoft,
+      'yggdrasil' => _AuthType.yggdrasil,
+      _ => _AuthType.offline,
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
-// 大启动按钮（PCL2 绿色渐变，含当前版本名）
+// 登录方式药丸（PCL2 PanTypeOne：CornerRadius 13 / MinHeight 27，
+// 图标 + 文字；点击展开 PanType 单选：正版 / 离线 / 外置）
 // ---------------------------------------------------------------------------
-class _LaunchButton extends ConsumerStatefulWidget {
-  final String selected;
+class _AuthTypePill extends StatefulWidget {
+  final _AuthType authType;
+  final rust.Account? account;
+  final ValueChanged<_AuthType> onPick;
 
-  const _LaunchButton({required this.selected});
+  const _AuthTypePill({
+    required this.authType,
+    required this.account,
+    required this.onPick,
+  });
 
   @override
-  ConsumerState<_LaunchButton> createState() => _LaunchButtonState();
+  State<_AuthTypePill> createState() => _AuthTypePillState();
 }
 
-class _LaunchButtonState extends ConsumerState<_LaunchButton> {
-  bool _hover = false;
+class _AuthTypePillState extends State<_AuthTypePill> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
-    final sessions = ref.watch(launchSessionsProvider);
-    final active = sessions.where((s) => s.isActive).length;
-    final hasVersion = widget.selected.isNotEmpty;
-
-    // 无版本时可点击 → 引导去选择/安装版本；有活跃会话时不响应
-    void onTap() {
-      if (hasVersion && active > 0) return;
-      if (!hasVersion) {
-        showDialog<void>(
-          context: context,
-          builder: (_) => const _VersionSelectorDialog(),
-        );
-        return;
-      }
-      ref.read(launchSessionsProvider.notifier).launch(widget.selected);
-    }
-
-    final grad = !hasVersion || active > 0
-        ? [
-            Colors.grey.shade400,
-            Colors.grey.shade500,
-          ]
-        : _hover
-        ? const [_launchGreenHover, _launchGreenDeep]
-        : const [_launchGreen, _launchGreenDeep];
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          height: 112,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: grad,
-            ),
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: hasVersion && active == 0
-                ? [
-                    BoxShadow(
-                      color: _launchGreen.withAlpha(_hover ? 96 : 60),
-                      blurRadius: _hover ? 18 : 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ]
-                : null,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                width: 64,
-                height: 64,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        children: [
+          // 药丸（半透明圆角 13，高 27）
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Container(
+                height: 27,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(_hover ? 52 : 34),
-                  borderRadius: BorderRadius.circular(14),
+                  color: Colors.white.withAlpha(46),
+                  borderRadius: BorderRadius.circular(13),
                 ),
-                child: const Icon(
-                  Icons.play_arrow_rounded,
-                  size: 46,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Icon(_iconOf(widget.authType), size: 15, color: kAccent),
+                    const SizedBox(width: 8),
                     Text(
-                      active > 0 ? '游戏运行中（$active）' : hasVersion ? '启动游戏' : '没有已安装的版本',
+                      _labelOf(widget.authType, widget.account),
                       style: const TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: 1,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: kAccent,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      hasVersion
-                          ? widget.selected
-                          : '点击选择版本或前往下载页安装',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: Colors.white.withAlpha(_hover ? 235 : 200),
+                    const SizedBox(width: 6),
+                    AnimatedRotation(
+                      turns: _expanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 150),
+                      child: const Icon(
+                        Icons.expand_more_rounded,
+                        size: 15,
+                        color: kAccent,
                       ),
                     ),
                   ],
                 ),
               ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: Colors.white70,
-                size: 26,
+            ),
+          ),
+          // 展开的登录方式单选（PCL2 PanType：正版 / 离线）
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 150),
+            sizeCurve: Curves.easeOut,
+            crossFadeState: _expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            firstChild: const SizedBox(width: double.infinity),
+            secondChild: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (final t in _AuthType.values) ...[
+                    _AuthTypeRadio(
+                      selected: widget.authType == t,
+                      icon: _iconOf(t),
+                      label: switch (t) {
+                        _AuthType.microsoft => '正版',
+                        _AuthType.offline => '离线',
+                        _AuthType.yggdrasil => '外置',
+                      },
+                      onTap: () {
+                        widget.onPick(t);
+                        setState(() => _expanded = false);
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static IconData _iconOf(_AuthType t) {
+    return switch (t) {
+      _AuthType.microsoft => Icons.verified_user_rounded,
+      _AuthType.yggdrasil => Icons.dns_rounded,
+      _AuthType.offline => Icons.person_rounded,
+    };
+  }
+
+  static String _labelOf(_AuthType t, rust.Account? account) {
+    final has = account != null;
+    return switch (t) {
+      _AuthType.microsoft => has && account!.accountType == 'microsoft'
+          ? '微软正版'
+          : '正版登录',
+      _AuthType.yggdrasil => has && account!.accountType == 'yggdrasil'
+          ? _serverLabel(account)
+          : '外置登录',
+      _AuthType.offline =>
+        has && account!.accountType == 'offline' ? '离线模式' : '离线登录',
+    };
+  }
+
+  static String _serverLabel(rust.Account a) {
+    final server = a.yggdrasilServer ?? '';
+    if (server.isEmpty) return '外置登录';
+    final host = server
+        .replaceFirst(RegExp('^https?://'), '')
+        .split('/')
+        .first;
+    return '$host 登录';
+  }
+}
+
+/// 登录方式单选项（PCL2 MyRadioButton 小样式）
+class _AuthTypeRadio extends StatelessWidget {
+  final bool selected;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _AuthTypeRadio({
+    required this.selected,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 27,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: selected
+                ? kAccent.withAlpha(40)
+                : Colors.white.withAlpha(36),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(
+              color: selected ? kAccent : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 14,
+                color: selected ? kAccent : Colors.white70,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? kAccent : Colors.white,
+                ),
               ),
             ],
           ),
@@ -201,425 +336,638 @@ class _LaunchButtonState extends ConsumerState<_LaunchButton> {
 }
 
 // ---------------------------------------------------------------------------
-// 当前账户卡（PCL2：启动按钮右侧，点击切换账户）
+// 登录区 / 账户区（PCL2 PanLogin）
 // ---------------------------------------------------------------------------
-class _AccountCard extends ConsumerWidget {
-  const _AccountCard();
+class _LoginArea extends ConsumerWidget {
+  final _AuthType authType;
+  final rust.Account? account;
+
+  const _LoginArea({required this.authType, required this.account});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final accounts = ref.watch(accountsProvider);
-    final cur = accounts.current;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    final String name;
-    final String sub;
-    final Color typeColor;
-    final IconData icon;
-    if (cur == null) {
-      name = '未登录';
-      sub = '点击添加账户';
-      typeColor = kAccent;
-      icon = Icons.person_add_alt_1_rounded;
-    } else {
-      name = cur.name;
-      sub = switch (cur.accountType) {
-        'microsoft' => '微软正版',
-        'yggdrasil' => '外置登录',
-        _ => '离线模式',
-      };
-      typeColor = switch (cur.accountType) {
-        'microsoft' => Colors.green,
-        'yggdrasil' => Colors.deepPurple,
-        _ => kAccent,
-      };
-      icon = switch (cur.accountType) {
-        'microsoft' => Icons.verified_user_rounded,
-        'yggdrasil' => Icons.dns_rounded,
-        _ => Icons.person_rounded,
-      };
+    // 当前账户与所选登录方式匹配 → 显示账户卡
+    if (account != null &&
+        account!.accountType == _typeString(authType)) {
+      return _AccountView(account: account!);
     }
+    return _LoginForm(authType: authType);
+  }
 
-    return PclPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      onTap: () => ref.read(pageIndexProvider.notifier).set(2),
+  static String _typeString(_AuthType t) {
+    return switch (t) {
+      _AuthType.microsoft => 'microsoft',
+      _AuthType.yggdrasil => 'yggdrasil',
+      _AuthType.offline => 'offline',
+    };
+  }
+}
+
+/// 已登录视图（头像 + 用户名 + 登录方式，PCL2 登录完成态）
+class _AccountView extends ConsumerWidget {
+  final rust.Account account;
+
+  const _AccountView({required this.account});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final typeLabel = switch (account.accountType) {
+      'microsoft' => '微软正版',
+      'yggdrasil' => '外置登录 · ${_host(account.yggdrasilServer)}',
+      _ => '离线模式',
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          CircleAvatar(
+            radius: 30,
+            backgroundColor: Colors.white.withAlpha(60),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(30),
+              child: account.skinUrl != null && account.skinUrl!.isNotEmpty
+                  ? Image.network(
+                      account.skinUrl!,
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const Icon(
+                        Icons.person_rounded,
+                        size: 34,
+                        color: kAccent,
+                      ),
+                    )
+                  : const Icon(Icons.person_rounded, size: 34, color: kAccent),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            account.name,
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: isDark ? Colors.white : Colors.white,
+              shadows: const [Shadow(blurRadius: 4, color: Colors.black38)],
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            typeLabel,
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.white70 : Colors.white.withAlpha(220),
+              shadows: const [Shadow(blurRadius: 4, color: Colors.black38)],
+            ),
+          ),
+          const SizedBox(height: 10),
           Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircleAvatar(
-                radius: 17,
-                backgroundColor: typeColor.withAlpha(30),
-                child: Icon(icon, size: 18, color: typeColor),
+              PclButton(
+                text: '切换账户',
+                primary: false,
+                height: 30,
+                fontSize: 12.5,
+                onTap: () => ref.read(pageIndexProvider.notifier).set(3),
               ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(width: 8),
+              PclButton(
+                text: '刷新令牌',
+                primary: false,
+                height: 30,
+                fontSize: 12.5,
+                onTap: () async {
+                  try {
+                    await ref.read(accountsProvider.notifier).refreshIfNeeded();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('账户令牌校验完成')),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('令牌校验失败: $e'),
+                          backgroundColor: kDanger,
+                        ),
+                      );
+                    }
+                  }
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _host(String? server) {
+    if (server == null || server.isEmpty) return '外置';
+    return server
+        .replaceFirst(RegExp('^https?://'), '')
+        .split('/')
+        .first;
+  }
+}
+
+/// 未登录表单（按登录方式：离线 / 正版 / 外置）
+class _LoginForm extends ConsumerWidget {
+  final _AuthType authType;
+
+  const _LoginForm({required this.authType});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return switch (authType) {
+      _AuthType.offline => const _OfflineForm(),
+      _AuthType.microsoft => _MicrosoftForm(),
+      _AuthType.yggdrasil => const _YggdrasilForm(),
+    };
+  }
+}
+
+class _OfflineForm extends ConsumerStatefulWidget {
+  const _OfflineForm();
+
+  @override
+  ConsumerState<_OfflineForm> createState() => _OfflineFormState();
+}
+
+class _OfflineFormState extends ConsumerState<_OfflineForm> {
+  final _nameC = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.person_pin_rounded, size: 46, color: kAccent),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _nameC,
+            textAlign: TextAlign.center,
+            decoration: const InputDecoration(
+              labelText: '玩家名',
+              hintText: '离线模式 · 1-16 字符',
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+          const SizedBox(height: 12),
+          PclButton(text: '登录离线账户', onTap: _submit),
+        ],
+      ),
+    );
+  }
+
+  void _submit() {
+    final name = _nameC.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请输入玩家名')));
+      return;
+    }
+    // 表单内已输入玩家名，直接创建，不再弹二次确认框
+    _create(name);
+  }
+
+  Future<void> _create(String name) async {
+    try {
+      await ref.read(accountsProvider.notifier).addOffline(name);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已添加离线账户：$name')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e'), backgroundColor: kDanger),
+        );
+      }
+    }
+  }
+}
+
+class _MicrosoftForm extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.verified_user_rounded, size: 46, color: kAccent),
+          const SizedBox(height: 12),
+          const Text(
+            '使用微软账户登录 Minecraft Java 版',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          PclButton(
+            text: '登录微软账户',
+            icon: Icons.open_in_browser_rounded,
+            onTap: () => microsoftLoginFlow(context, ref),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _YggdrasilForm extends ConsumerStatefulWidget {
+  const _YggdrasilForm();
+
+  @override
+  ConsumerState<_YggdrasilForm> createState() => _YggdrasilFormState();
+}
+
+class _YggdrasilFormState extends ConsumerState<_YggdrasilForm> {
+  final _serverC = TextEditingController(text: 'https://littleskin.cn');
+  final _userC = TextEditingController();
+  final _passC = TextEditingController();
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.dns_rounded, size: 42, color: kAccent),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _serverC,
+            decoration: const InputDecoration(
+              labelText: '认证服务器',
+              hintText: '如 https://littleskin.cn',
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _userC,
+            decoration: const InputDecoration(
+              labelText: '邮箱 / 用户名',
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _passC,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: '密码',
+              isDense: true,
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+          const SizedBox(height: 12),
+          _busy
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : PclButton(text: '登录外置账户', onTap: _submit),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    Object? error;
+    try {
+      final session = await rust
+          .yggdrasilLogin(
+            serverUrl: _serverC.text.trim(),
+            username: _userC.text.trim(),
+            password: _passC.text,
+          )
+          .timeout(const Duration(seconds: 90));
+      final profile = session.profiles.length == 1
+          ? session.profiles.first
+          : await showDialog<rust.YggdrasilProfile>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('选择角色'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    for (final p in session.profiles)
+                      ListTile(
+                        title: Text(p.name),
+                        onTap: () => Navigator.of(dialogContext).pop(p),
+                      ),
+                  ],
+                ),
+              ),
+            );
+      if (profile != null) {
+        await rust.saveYggdrasilAccount(
+          apiRoot: session.apiRoot,
+          accessToken: session.accessToken,
+          clientToken: session.clientToken,
+          profileId: profile.id,
+          profileName: profile.name,
+        );
+        await ref.read(accountsProvider.notifier).reload();
+        if (mounted) {
+          messenger.showSnackBar(
+            SnackBar(content: Text('已添加外置账户：${profile.name}')),
+          );
+        }
+        // 对齐 PCL：外置登录就绪后自动下载 authlib-injector
+        if (mounted) {
+          setState(() => _busy = false);
+          await ensureAuthlibInjectorFlow(context);
+          return;
+        }
+      }
+    } catch (e) {
+      error = e;
+    }
+    if (error != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('外置登录失败: $error'),
+          backgroundColor: kDanger,
+        ),
+      );
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 大启动按钮（PCL2 BtnLaunch：Height 54 / Margin 20；版本名内嵌底部）
+// ---------------------------------------------------------------------------
+class _LaunchButton extends ConsumerStatefulWidget {
+  final String selected;
+  final int activeCount;
+
+  const _LaunchButton({required this.selected, required this.activeCount});
+
+  @override
+  ConsumerState<_LaunchButton> createState() => _LaunchButtonState();
+}
+
+class _LaunchButtonState extends ConsumerState<_LaunchButton> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasVersion = widget.selected.isNotEmpty;
+    final busy = widget.activeCount > 0;
+
+    Future<void> _launch() async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        await ref
+            .read(launchSessionsProvider.notifier)
+            .launch(widget.selected);
+      } catch (e) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('启动失败: $e'),
+            backgroundColor: kDanger,
+          ),
+        );
+      }
+    }
+
+    void onTap() {
+      if (!hasVersion) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('尚未安装版本，请先在「下载」页安装')),
+        );
+        ref.read(pageIndexProvider.notifier).set(1);
+        return;
+      }
+      if (busy) return;
+      _launch();
+    }
+
+    final grad = !hasVersion || busy
+        ? [Colors.grey.shade400, Colors.grey.shade500]
+        : _hover
+        ? const [_launchGreenHover, _launchGreenDeep]
+        : const [_launchGreen, _launchGreenDeep];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            height: 54,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: grad,
+              ),
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: hasVersion && !busy
+                  ? [
+                      BoxShadow(
+                        color: _launchGreen.withAlpha(_hover ? 96 : 60),
+                        blurRadius: _hover ? 18 : 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Stack(
+              children: [
+                // 主文字（居中）
+                Center(
+                  child: Text(
+                    busy
+                        ? '游戏运行中（${widget.activeCount}）'
+                        : hasVersion
+                        ? '启动游戏'
+                        : '没有已安装的版本',
+                    style: const TextStyle(
+                      fontSize: 17.5,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                ),
+                // 版本名（PCL2 LabVersion：按钮内底部，11 号）
+                Positioned(
+                  left: 15,
+                  right: 15,
+                  bottom: 4,
+                  child: Text(
+                    hasVersion ? widget.selected : '点击前往「下载」安装版本',
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.white.withAlpha(_hover ? 235 : 200),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 启动日志卡（PCL2 PageLaunchRight 的启动日志 MyCard）+ 运行中会话
+// ---------------------------------------------------------------------------
+class _LaunchLogPanel extends ConsumerWidget {
+  final List<LaunchSession> activeSessions;
+
+  const _LaunchLogPanel({required this.activeSessions});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final logs = ref.watch(recentLogsProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tail = logs.length > 60 ? logs.sublist(logs.length - 60) : logs;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 运行中的会话（PCL2 启动时顶部进度提示的替代）
+          for (final s in activeSessions)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: PclPanel(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: _launchGreen,
+                      ),
+                    ),
+                    const SizedBox(width: 9),
                     Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      s.versionId,
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    Text(
-                      sub,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isDark ? Colors.white38 : Colors.black38,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        s.message,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark
+                              ? Colors.white38
+                              : Colors.black38,
+                        ),
                       ),
+                    ),
+                    PclButton(
+                      text: '终止',
+                      danger: true,
+                      height: 26,
+                      fontSize: 12,
+                      onTap: () => ref
+                          .read(launchSessionsProvider.notifier)
+                          .terminate(s.id),
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            decoration: BoxDecoration(
-              color: typeColor.withAlpha(16),
-              borderRadius: BorderRadius.circular(6),
             ),
-            alignment: Alignment.center,
-            child: Text(
-              cur == null ? '去登录' : '切换账户',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: typeColor,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 快捷入口 2x2（PCL2 主页：游戏文件夹 / 补全文件 / 版本设置 / 下载游戏）
-// ---------------------------------------------------------------------------
-class _QuickGrid extends ConsumerWidget {
-  final String selected;
-  final AsyncValue<List<rust.LocalVersionInfo>> versions;
-
-  const _QuickGrid({required this.selected, required this.versions});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final tiles = [
-      (
-        Icons.folder_open_rounded,
-        '游戏文件夹',
-        '打开 .minecraft 目录',
-        () => _openGameDir(ref),
-      ),
-      (
-        Icons.build_circle_outlined,
-        '补全文件',
-        '校验并补全当前版本',
-        () => _completeVersion(context, ref, selected),
-      ),
-      (
-        Icons.tune_rounded,
-        '版本设置',
-        '隔离 / 内存 / Java / JVM',
-        () => _openVersionSettings(context, selected),
-      ),
-      (
-        Icons.download_for_offline_outlined,
-        '下载游戏',
-        '新版本 / 模组 / 整合包',
-        () => ref.read(pageIndexProvider.notifier).set(1),
-      ),
-    ];
-    return GridView.count(
-      crossAxisCount: 2,
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 2.9,
-      padding: EdgeInsets.zero,
-      children: [
-        for (final (icon, title, sub, onTap) in tiles)
-          _QuickCard(icon: icon, title: title, subtitle: sub, onTap: onTap),
-      ],
-    );
-  }
-
-  void _openGameDir(WidgetRef ref) async {
-    final dir = ref.read(gameDirProvider);
-    try {
-      await Directory(dir).create(recursive: true);
-      await rust.openPath(path: dir);
-    } catch (_) {}
-  }
-
-  void _completeVersion(BuildContext context, WidgetRef ref, String versionId) {
-    if (versionId.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请先选择版本')));
-      return;
-    }
-    final settings = ref.read(settingsProvider);
-    final task = ref.read(installTaskProvider.notifier);
-    task.complete(
-      gameDir: ref.read(gameDirProvider),
-      versionId: versionId,
-      bmclapiFirst: settings.downloadSourceIndex == 0,
-      concurrency: settings.concurrency,
-    );
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const InstallTaskDialog(),
-    );
-  }
-
-  void _openVersionSettings(BuildContext context, String versionId) {
-    if (versionId.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请先选择版本')));
-      return;
-    }
-    showDialog<void>(
-      context: context,
-      builder: (_) => VersionSettingsDialog(versionId: versionId),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 快捷入口卡（PCL2 横向卡片）
-// ---------------------------------------------------------------------------
-class _QuickCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _QuickCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return PclPanel(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      onTap: onTap,
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: kAccent.withAlpha(22),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(icon, size: 21, color: kAccent),
-          ),
-          const SizedBox(width: 11),
+          // 启动日志卡（PCL2 PanLog）
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: isDark ? Colors.white38 : Colors.black38,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 运行中的游戏会话
-// ---------------------------------------------------------------------------
-class _RunningSessions extends ConsumerWidget {
-  final List<LaunchSession> sessions;
-
-  const _RunningSessions({required this.sessions});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return PclPanel(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final s in sessions)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Row(
-                children: [
-                  const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: _launchGreen,
-                    ),
-                  ),
-                  const SizedBox(width: 9),
-                  Text(
-                    s.versionId,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      s.message,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? Colors.white38
-                            : Colors.black38,
-                      ),
-                    ),
-                  ),
-                  PclButton(
-                    text: '终止',
-                    danger: true,
-                    height: 26,
-                    fontSize: 12,
-                    onTap: () => ref
-                        .read(launchSessionsProvider.notifier)
-                        .terminate(s.id),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 公告面板（PCL2 风格：蓝色标题栏 + 内容区）
-// ---------------------------------------------------------------------------
-class _AnnouncementPanel extends StatelessWidget {
-  const _AnnouncementPanel();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return PclPanel(
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // 蓝色标题栏（PCL2 公告卡）
-          Container(
-            height: 42,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [kAccent, Color(0xFF2B62CE)],
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-              ),
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(10),
-                topRight: Radius.circular(10),
-              ),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.campaign_rounded, color: Colors.white, size: 18),
-                SizedBox(width: 8),
-                Text(
-                  '公告',
-                  style: TextStyle(
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                    letterSpacing: 1,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+            child: PclPanel(
+              padding: EdgeInsets.zero,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
-                    '欢迎使用 FMCL',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+                    child: Row(
+                      children: [
+                        const Text(
+                          '启动日志',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        PclButton(
+                          text: '查看全部',
+                          primary: false,
+                          height: 26,
+                          fontSize: 12,
+                          onTap: () =>
+                              ref.read(pageIndexProvider.notifier).set(3),
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 6),
-                  _announcementText(
-                    'FMCL（Fluent Minecraft Launcher）是一款遵循 PCL2 '
-                    '交互习惯的 Minecraft Java 版启动器：下载、安装、'
-                    '补全、启动与多账户登录全部由 Rust 核心完成，'
-                    '界面流畅且行为可预期。',
-                    isDark,
-                  ),
-                  _AnnouncementDivider(isDark: isDark),
-                  _announcementTitle('快速上手', 14),
-                  const SizedBox(height: 6),
-                  _announcementStep('1', '在「下载」页选择版本并一键安装'
-                      '（原版与 Forge / NeoForge / Fabric / Quilt / OptiFine '
-                      '加载器合并安装）', isDark),
-                  _announcementStep('2', '在「账户」页添加离线 / 微软 / 外置账户'
-                      '；外置登录（LittleSkin 等）会自动下载 authlib-injector',
-                      isDark),
-                  _announcementStep('3', '回到本页，点击绿色大按钮启动游戏', isDark),
-                  _AnnouncementDivider(isDark: isDark),
-                  _announcementTitle('提示', 14),
-                  const SizedBox(height: 6),
-                  _announcementText(
-                    '· 下载源可在「设置」页切换（BMCLAPI 优先 / 官方优先）\n'
-                    '· 完整日志输出至启动器目录 FMCL\\logs\\，遇到问题'
-                    '可在「日志」页一键打开并发给我们\n'
-                    '· 游戏与资源统一存放在启动器所在目录的 .minecraft',
-                    isDark,
-                  ),
-                  _AnnouncementDivider(isDark: isDark),
-                  _announcementTitle('反馈与更新', 14),
-                  const SizedBox(height: 6),
-                  SelectableText(
-                    'github.com/Ming-QWQ520/FMCL',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: kAccent,
-                      fontWeight: FontWeight.w600,
+                  const Divider(height: 10),
+                  Expanded(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(14, 2, 14, 10),
+                      itemCount: tail.length,
+                      itemBuilder: (context, i) {
+                        final e = tail[i];
+                        final color = switch (e.level) {
+                          'ERROR' => kDanger,
+                          'WARN' => const Color(0xFFB26A00),
+                          _ => isDark
+                              ? Colors.white54
+                              : Colors.black54,
+                        };
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 1),
+                          child: Text(
+                            e.message.isEmpty
+                                ? '[${e.module}]'
+                                : '[${e.module}] ${e.message}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              height: 1.35,
+                              color: color,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ],
@@ -630,85 +978,10 @@ class _AnnouncementPanel extends StatelessWidget {
       ),
     );
   }
-
-  Widget _announcementTitle(String text, double size) {
-    return Text(
-      text,
-      style: TextStyle(fontSize: size, fontWeight: FontWeight.w800),
-    );
-  }
-
-  Widget _announcementText(String text, bool isDark) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 12.5,
-        height: 1.65,
-        color: isDark ? Colors.white54 : Colors.black54,
-      ),
-    );
-  }
-
-  Widget _announcementStep(String n, String text, bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 7),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 17,
-            height: 17,
-            alignment: Alignment.center,
-            margin: const EdgeInsets.only(top: 1),
-            decoration: BoxDecoration(
-              color: kAccent.withAlpha(28),
-              borderRadius: BorderRadius.circular(5),
-            ),
-            child: Text(
-              n,
-              style: const TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w800,
-                color: kAccent,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 12.5,
-                height: 1.55,
-                color: isDark ? Colors.white54 : Colors.black54,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AnnouncementDivider extends StatelessWidget {
-  final bool isDark;
-
-  const _AnnouncementDivider({required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Divider(
-        height: 1,
-        color: isDark ? Colors.white.withAlpha(18) : Colors.black.withAlpha(18),
-      ),
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
-// 版本快速选择弹窗（保持 PCL2 列表样式）
+// 版本快速选择弹窗（PCL2 版本列表样式）
 // ---------------------------------------------------------------------------
 class _VersionSelectorDialog extends ConsumerWidget {
   const _VersionSelectorDialog();

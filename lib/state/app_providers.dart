@@ -665,9 +665,10 @@ final remoteVersionsProvider = FutureProvider<List<rust.RemoteVersionEntry>>((
   ref,
 ) async {
   final settings = ref.watch(settingsProvider);
-  return rust.fetchRemoteVersions(
-    bmclapiFirst: settings.downloadSourceIndex == 0,
-  );
+  // UI 侧兜底超时：杜绝任何网络/桥路异常导致的永久转圈
+  return rust
+      .fetchRemoteVersions(bmclapiFirst: settings.downloadSourceIndex == 0)
+      .timeout(const Duration(seconds: 150));
 });
 
 /// 加载器版本列表（loader/mc 变化时重新拉取）

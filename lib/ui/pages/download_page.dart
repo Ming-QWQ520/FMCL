@@ -950,13 +950,17 @@ class _ContentTabState extends ConsumerState<_ContentTab> {
       final selected = ref.read(selectedVersionProvider);
       final versions = ref.read(localVersionsProvider).value ?? const [];
       final v = versions.where((x) => x.id == selected).firstOrNull;
-      final results = await rust.searchContent(
-        query: _queryController.text.trim(),
-        category: widget.category,
-        mcVersion: v?.gameVersion ?? '',
-        loader: v?.loader ?? '',
-        index: 0,
-      );
+      final results = await rust
+          .searchContent(
+            query: _queryController.text.trim(),
+            category: widget.category,
+            mcVersion: v?.gameVersion ?? '',
+            loader: v?.loader ?? '',
+            index: 0,
+          )
+          // UI 侧兜底超时：Rust 侧自身有限时与重试（约 1 分钟内出结果），
+          // 此处保证转圈永不无限持续
+          .timeout(const Duration(seconds: 120));
       setState(() => _results = results);
     } catch (e) {
       setState(() => _error = '$e');

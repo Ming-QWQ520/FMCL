@@ -15,9 +15,9 @@ use std::path::Path;
 
 fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(12))
-        .read_timeout(std::time::Duration::from_secs(45))
-        .timeout(std::time::Duration::from_secs(120))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .read_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(60))
         .user_agent("FMCL/0.1.0 (github.com/Ming-QWQ520/FMCL)")
         .build()?)
 }
@@ -105,12 +105,13 @@ pub fn normalize_server_url(input: String) -> String {
 pub async fn yggdrasil_server_meta(server_url: String) -> Result<YggdrasilServerMeta> {
     let normalized = normalize_server_url(server_url);
     anyhow::ensure!(!normalized.is_empty(), "认证服务器地址不能为空");
+    let probe_url = format!("{normalized}/api/yggdrasil");
+    crate::log_info!("Auth", "探测认证服务器: {probe_url}");
     let c = client()?;
-    let resp = c
-        .get(format!("{normalized}/api/yggdrasil"))
-        .send()
-        .await
-        .map_err(|e| anyhow!("认证服务器不可达: {normalized} ({e})"))?;
+    let resp = c.get(&probe_url).send().await.map_err(|e| {
+        crate::log_warn!("Auth", "探测失败 {probe_url}: {e}");
+        anyhow!("认证服务器不可达: {normalized}（请检查地址与网络）")
+    })?;
     anyhow::ensure!(
         resp.status().is_success(),
         "无法连接认证服务器 (HTTP {})",
@@ -167,7 +168,14 @@ pub async fn yggdrasil_login(
     username: String,
     password: String,
 ) -> Result<YggdrasilSession> {
+    crate::log_info!("Auth", "外置登录开始: user={username} server={server_url}");
     let meta = yggdrasil_server_meta(server_url).await?;
+    crate::log_info!(
+        "Auth",
+        "元数据就绪: {}（{}）",
+        meta.server_name,
+        meta.api_root
+    );
     let c = client()?;
     let resp = c
         .post(format!("{}/authserver/authenticate", meta.api_root))
@@ -179,14 +187,23 @@ pub async fn yggdrasil_login(
         }))
         .send()
         .await
-        .map_err(|e| anyhow!("登录请求失败: {e}"))?;
+        .map_err(|e| {
+            crate::log_warn!("Auth", "登录请求失败: {e}");
+            anyhow!("登录请求失败: {e}")
+        })?;
     let status = resp.status();
     let data: Value = resp.json().await.unwrap_or(Value::Null);
     if !status.is_success() {
         let msg = data["errorMessage"]
             .as_str()
-            .unwrap_or("认证失败")
+            .unwrap_or("认证失败（账号、密码或服务器要求不匹配）")
             .to_string();
+        // 失败细节必须落盘：ok=false 只有 id 时无法排查
+        crate::log_warn!(
+            "Auth",
+            "认证失败 HTTP {status}: {}",
+            data["errorMessage"].as_str().unwrap_or("")
+        );
         bail!("{msg}");
     }
     let token = data["accessToken"]

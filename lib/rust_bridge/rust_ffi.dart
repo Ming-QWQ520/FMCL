@@ -39,6 +39,7 @@ class RustFfi {
   late final int Function(Pointer<Char>, Pointer<Char>, Pointer<Char>, int)
   _fmclCallSync;
   late final int Function() _fmclPing;
+  late final void Function(Pointer<Char>) _fmclFree;
 
   /// 事件回调（进程生命周期内常驻持有！）。
   ///
@@ -46,6 +47,18 @@ class RustFfi {
   /// 持有的函数指针随即失效，此后所有 Rust → Dart 响应都静默丢失，
   /// 表现为一切调用永久挂起（启动/下载/启动游戏全部无响应）。
   NativeCallable<Void Function(Pointer<Char>)>? _callback;
+
+  /// 释放 Rust 侧事件缓冲区（emit_event 用 into_raw 移交所有权，
+  /// Dart 读完后必须归还，否则内存泄漏）。
+  ///
+  /// 配套修复 use-after-free：Rust 侧绝不能在回调返回后立即释放，
+  /// 否则 Dart 稍后读取时内存已被回收 —— JSON 解析失败被静默吞掉，
+  /// 表现为所有异步响应随机丢失（登录卡住/下载转圈/关窗无反应）。
+  void _freeEventBuffer(Pointer<Char> ptr) {
+    try {
+      if (ptr != nullptr) _fmclFree(ptr);
+    } catch (_) {}
+  }
 
   /// 调用 id → Future
   final Map<int, Completer<dynamic>> _pending = {};
@@ -64,7 +77,10 @@ class RustFfi {
 
   /// 桥接 ABI 版本（与 rust/src/bridge.rs 的 FMCL_ABI_VERSION 严格一致，
   /// 两侧同时发布；不一致说明 DLL 与程序版本不配套）
-  static const int abiVersion = 1;
+  ///
+  /// v2：事件内存所有权变更（emit_event into_raw 移交 + fmcl_free 归还，
+  /// 修复 v1 的 use-after-free 导致异步响应随机丢失）。
+  static const int abiVersion = 2;
 
   /// fmcl_ping 魔法数高 32 位（"FMCL" 的 ASCII）
   static const int _pingMagic = 0x464D434C;
@@ -111,6 +127,12 @@ class RustFfi {
           Int64 Function(Pointer<Char>, Pointer<Char>, Pointer<Char>, Size),
           int Function(Pointer<Char>, Pointer<Char>, Pointer<Char>, int)
         >('fmcl_call_sync');
+
+    _fmclFree = _lib
+        .lookupFunction<
+          Void Function(Pointer<Char>),
+          void Function(Pointer<Char>)
+        >('fmcl_free');
 
     _ready = true;
   }
@@ -193,7 +215,10 @@ class RustFfi {
     }
   }
 
-  /// 单一事件入口（Rust 任意线程触发）
+  /// 单一事件入口（Rust 任意线程触发）。
+  ///
+  /// 指针指向的缓冲区由 Rust 侧移交所有权（into_raw），读取后必须
+  /// 经 fmcl_free 归还 —— 无论处理成功与否都在 finally 中释放。
   void _onEvent(Pointer<Char> ptr) {
     try {
       if (ptr == nullptr) return;
@@ -216,6 +241,8 @@ class RustFfi {
       }
     } catch (_) {
       // 事件解析失败静默忽略（不得让原生回调抛出）
+    } finally {
+      _freeEventBuffer(ptr);
     }
   }
 

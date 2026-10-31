@@ -10,9 +10,10 @@ use serde_json::Value;
 
 fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(12))
-        .read_timeout(std::time::Duration::from_secs(45))
-        .timeout(std::time::Duration::from_secs(300))
+        .connect_timeout(std::time::Duration::from_secs(8))
+        .read_timeout(std::time::Duration::from_secs(20))
+        // 搜索请求体量小，总超时收紧：避免不可达时 UI 长时间转圈
+        .timeout(std::time::Duration::from_secs(30))
         .user_agent("FMCL/0.1.0 (github.com/Ming-QWQ520/FMCL)")
         .build()?)
 }
@@ -62,40 +63,49 @@ pub async fn search_content(
             crate::log_warn!("Content", "Modrinth 搜索超时/失败，重试第 {attempt} 次");
             tokio::time::sleep(std::time::Duration::from_millis(400)).await;
         }
-        match c
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| anyhow!("连接 Modrinth 失败: {e}"))
+        // 单次尝试硬限时 25s：连接/读取超时之外的意外阻塞也兜住
+        let attempt_fut = async {
+            c.get(&url)
+                .send()
+                .await
+                .map_err(|e| anyhow!("连接 Modrinth 失败: {e}"))?
+                .json::<Value>()
+                .await
+                .map_err(|e| anyhow!("搜索结果读取/解析失败: {e}"))
+        };
+        let json: Value = match tokio::time::timeout(
+            std::time::Duration::from_secs(25),
+            attempt_fut,
+        )
+        .await
         {
-            Err(e) => {
+            Err(_) => {
+                last_err = Some(anyhow!("请求超时（25s 无响应）"));
+                continue;
+            }
+            Ok(Err(e)) => {
                 last_err = Some(e);
                 continue;
             }
-            Ok(resp) => {
-                let json: Value = resp
-                    .json()
-                    .await
-                    .map_err(|e| anyhow!("搜索结果解析失败: {e}"))?;
-                let hits = json["hits"]
-                    .as_array()
-                    .ok_or_else(|| anyhow!("搜索结果格式异常"))?;
-                return Ok(hits
-                    .iter()
-                    .map(|h| SearchHit {
-                        project_id: h["project_id"].as_str().unwrap_or("").to_string(),
-                        slug: h["slug"].as_str().unwrap_or("").to_string(),
-                        title: h["title"].as_str().unwrap_or("").to_string(),
-                        description: h["description"].as_str().unwrap_or("").to_string(),
-                        author: h["author"].as_str().unwrap_or("").to_string(),
-                        downloads: h["downloads"].as_i64().unwrap_or(0),
-                        icon_url: h["icon_url"].as_str().unwrap_or("").to_string(),
-                        category: category.clone(),
-                        date_modified: h["date_modified"].as_str().unwrap_or("").to_string(),
-                    })
-                    .collect());
-            }
-        }
+            Ok(Ok(v)) => v,
+        };
+        let hits = json["hits"]
+            .as_array()
+            .ok_or_else(|| anyhow!("搜索结果格式异常"))?;
+        return Ok(hits
+            .iter()
+            .map(|h| SearchHit {
+                project_id: h["project_id"].as_str().unwrap_or("").to_string(),
+                slug: h["slug"].as_str().unwrap_or("").to_string(),
+                title: h["title"].as_str().unwrap_or("").to_string(),
+                description: h["description"].as_str().unwrap_or("").to_string(),
+                author: h["author"].as_str().unwrap_or("").to_string(),
+                downloads: h["downloads"].as_i64().unwrap_or(0),
+                icon_url: h["icon_url"].as_str().unwrap_or("").to_string(),
+                category: category.clone(),
+                date_modified: h["date_modified"].as_str().unwrap_or("").to_string(),
+            })
+            .collect());
     }
     let e = last_err.unwrap_or_else(|| anyhow!("搜索失败"));
     bail!(

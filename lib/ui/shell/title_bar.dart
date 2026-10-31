@@ -1,10 +1,18 @@
-/// 自绘标题栏（Windows 11 风格，修复 Hover 体验）。
+/// 自绘标题栏 —— 100% 对齐 PCL2 FormMain 布局：
 ///
-/// - 全高方形热区，Hover 130ms 平滑过渡
-/// - 最小化/最大化 Hover：半透明底色；关闭 Hover：系统红 #E81123
-/// - 拖拽区支持双击最大化/还原；左侧显示应用名与当前页面
+/// - 高 48（PCL2 PanTitle Height=48）
+/// - 左侧：FMCL 标识（PCL2 ShapeTitleLogo 位置）
+/// - 中部：水平导航单选按钮「启动 / 下载 / 设置 / 更多」
+///   （PCL2 BtnTitleSelect0..4：MyRadioButton，高 27，图标+文字，
+///   hover 半透明底、选中主题色底）
+/// - 右侧：窗口按钮 28×28（PCL2 BtnTitleClose/BtnTitleMin：
+///   Height=28 Width=28，hover 半透明圆角底）
+/// - 关闭按钮绝不等待任何异步任务：设置保存改为 fire-and-forget，
+///   点击后立即关窗（修复「X 点击无反应」——旧实现 await 设置保存，
+///   一旦响应丢失则永不关闭）
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -13,12 +21,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../state/app_providers.dart';
-import '../theme/pcl_theme.dart';
+
+/// 页面标题（与 app_shell 的页面顺序一致）
+const List<String> kPageTitles = ['启动', '下载', '设置', '更多'];
 
 class FmclTitleBar extends ConsumerStatefulWidget {
-  final String currentPage;
-
-  const FmclTitleBar({super.key, required this.currentPage});
+  const FmclTitleBar({super.key});
 
   @override
   ConsumerState<FmclTitleBar> createState() => _FmclTitleBarState();
@@ -71,127 +79,135 @@ class _FmclTitleBarState extends ConsumerState<FmclTitleBar>
     _refreshMaximized();
   }
 
+  /// 记住窗口大小（PCL2 式记忆）。fire-and-forget：绝不阻塞关窗。
+  void _rememberWindowSize() {
+    unawaited(_saveWindowSize());
+  }
+
+  Future<void> _saveWindowSize() async {
+    try {
+      final size = await windowManager.getSize();
+      final s = ref.read(settingsProvider);
+      await ref
+          .read(settingsProvider.notifier)
+          .update(
+            s.copyWithLocal(
+              windowLauncherWidth: size.width.toInt(),
+              windowLauncherHeight: size.height.toInt(),
+            ),
+          );
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     if (kIsWeb || !Platform.isWindows) {
       return const SizedBox(width: double.infinity, height: 6);
     }
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final settings = ref.watch(settingsProvider);
-    final bg = isDark ? const Color(0xFF202124) : const Color(0xFFEFF1F4);
+    final pageIndex = ref.watch(pageIndexProvider);
 
+    // PCL2 标题栏始终使用主题色（FormMain PanTitle：主题色渐变背景 +
+    // 白色导航按钮，浅色/夜间模式一致）
     return Container(
-      height: 38,
-      color: bg,
+      height: 48,
+      color: const Color(0xFF3478F6),
       child: Row(
         children: [
-          // ---------- 拖拽区 ----------
+          // ---------- 左侧标识（拖拽区） ----------
+          GestureDetector(
+            onPanStart: (_) => windowManager.startDragging(),
+            onDoubleTap: _toggleMaximize,
+            behavior: HitTestBehavior.translucent,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'FMCL',
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.6,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(36),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: const Text(
+                        '2',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // ---------- 中部导航（PCL2 BtnTitleSelect：水平单选按钮） ----------
           Expanded(
             child: GestureDetector(
               onPanStart: (_) => windowManager.startDragging(),
               onDoubleTap: _toggleMaximize,
               behavior: HitTestBehavior.translucent,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 14),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'FMCL',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 1.4,
-                          color: kAccent,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        widget.currentPage,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark ? Colors.white54 : Colors.black45,
-                        ),
-                      ),
-                      if (settings.lastVersionId.isNotEmpty) ...[
-                        const SizedBox(width: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 1.5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: kAccent.withAlpha(22),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            settings.lastVersionId,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: kAccent,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+              child: Center(
+                heightFactor: 1,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < kPageTitles.length; i++)
+                      _TitleNavButton(index: i, selected: pageIndex == i),
+                  ],
                 ),
               ),
             ),
           ),
-          // ---------- 窗口控制（Windows 标准布局） ----------
-          _WindowButton(
-            icon: Icons.horizontal_rule_rounded,
-            hoverFill: isDark
-                ? Colors.white.withAlpha(30)
-                : Colors.black.withAlpha(20),
-            pressedFill: isDark
-                ? Colors.white.withAlpha(46)
-                : Colors.black.withAlpha(34),
-            hoverIconColor: isDark ? Colors.white : Colors.black87,
-            onPressed: windowManager.minimize,
-            tooltip: '最小化',
-          ),
-          _WindowButton(
-            icon: _maximized
-                ? Icons.filter_none_rounded
-                : Icons.crop_square_rounded,
-            iconSize: 14,
-            hoverFill: isDark
-                ? Colors.white.withAlpha(30)
-                : Colors.black.withAlpha(20),
-            pressedFill: isDark
-                ? Colors.white.withAlpha(46)
-                : Colors.black.withAlpha(34),
-            hoverIconColor: isDark ? Colors.white : Colors.black87,
-            onPressed: _toggleMaximize,
-            tooltip: _maximized ? '向下还原' : '最大化',
-          ),
-          _WindowButton(
-            icon: Icons.close_rounded,
-            hoverFill: kDanger,
-            pressedFill: const Color(0xFFF1707A),
-            hoverIconColor: Colors.white,
-            onPressed: () async {
-              // 记住窗口大小后关闭（PCL2 式记忆）
-              try {
-                final size = await windowManager.getSize();
-                final s = ref.read(settingsProvider);
-                await ref
-                    .read(settingsProvider.notifier)
-                    .update(
-                      s.copyWithLocal(
-                        windowLauncherWidth: size.width.toInt(),
-                        windowLauncherHeight: size.height.toInt(),
-                      ),
-                    );
-              } catch (_) {}
-              await windowManager.close();
-            },
-            tooltip: '关闭',
+          // ---------- 右侧窗口按钮（PCL2 28×28） ----------
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _WindowButton(
+                  icon: Icons.minimize_rounded,
+                  onPressed: windowManager.minimize,
+                  tooltip: '最小化',
+                ),
+                const SizedBox(width: 4),
+                _WindowButton(
+                  icon: _maximized
+                      ? Icons.filter_none_rounded
+                      : Icons.crop_square_rounded,
+                  onPressed: _toggleMaximize,
+                  tooltip: _maximized ? '向下还原' : '最大化',
+                ),
+                const SizedBox(width: 4),
+                _WindowButton(
+                  icon: Icons.close_rounded,
+                  onPressed: () {
+                    // 立即关窗；窗口大小记忆 fire-and-forget，
+                    // 绝不 await（旧版在此处 await 导致 X「无反应」）
+                    _rememberWindowSize();
+                    unawaited(windowManager.close());
+                  },
+                  tooltip: '关闭',
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -199,24 +215,84 @@ class _FmclTitleBarState extends ConsumerState<FmclTitleBar>
   }
 }
 
-/// 全高方形窗口按钮（Hover/按下状态显式分层，修复原 Hover 过淡问题）
+/// 顶栏导航按钮（PCL2 MyRadioButton：高 27，图标 + 文字，hover 半透明底）
+class _TitleNavButton extends ConsumerStatefulWidget {
+  final int index;
+  final bool selected;
+
+  const _TitleNavButton({required this.index, required this.selected});
+
+  @override
+  ConsumerState<_TitleNavButton> createState() => _TitleNavButtonState();
+}
+
+class _TitleNavButtonState extends ConsumerState<_TitleNavButton> {
+  bool _hover = false;
+
+  static const List<IconData> _icons = [
+    Icons.play_arrow_rounded,
+    Icons.download_rounded,
+    Icons.settings_rounded,
+    Icons.apps_rounded,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = widget.selected;
+    final bg = selected
+        ? Colors.white.withAlpha(46)
+        : _hover
+        ? Colors.white.withAlpha(26)
+        : Colors.transparent;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: () => ref.read(pageIndexProvider.notifier).set(widget.index),
+        // 空消费双击：避免冒泡到标题栏拖拽区的双击最大化
+        onDoubleTap: () {},
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          height: 27,
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 9),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_icons[widget.index], size: 15, color: Colors.white),
+              const SizedBox(width: 5),
+              Text(
+                kPageTitles[widget.index],
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: Colors.white.withAlpha(selected ? 255 : 215),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 窗口按钮（PCL2 MyIconButton：28×28，hover 半透明圆角底，点击缩放反馈）
 class _WindowButton extends StatefulWidget {
   final IconData icon;
-  final double iconSize;
-  final Color hoverFill;
-  final Color pressedFill;
-  final Color hoverIconColor;
   final VoidCallback onPressed;
   final String tooltip;
 
   const _WindowButton({
     required this.icon,
-    required this.hoverFill,
-    required this.pressedFill,
-    required this.hoverIconColor,
     required this.onPressed,
     required this.tooltip,
-    this.iconSize = 15,
   });
 
   @override
@@ -229,8 +305,6 @@ class _WindowButtonState extends State<_WindowButton> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final idleIcon = isDark ? Colors.white70 : Colors.black54;
     return Tooltip(
       message: widget.tooltip,
       waitDuration: const Duration(milliseconds: 500),
@@ -248,21 +322,20 @@ class _WindowButtonState extends State<_WindowButton> {
           onTapUp: (_) => setState(() => _pressed = false),
           onTap: widget.onPressed,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 130),
+            duration: const Duration(milliseconds: 120),
             curve: Curves.easeOut,
-            width: 46,
-            height: 38,
-            color: _pressed
-                ? widget.pressedFill
-                : _hover
-                ? widget.hoverFill
-                : Colors.transparent,
-            alignment: Alignment.center,
-            child: Icon(
-              widget.icon,
-              size: widget.iconSize,
-              color: (_hover || _pressed) ? widget.hoverIconColor : idleIcon,
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: _pressed
+                  ? Colors.white.withAlpha(52)
+                  : _hover
+                  ? Colors.white.withAlpha(34)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(7),
             ),
+            alignment: Alignment.center,
+            child: Icon(widget.icon, size: 15, color: Colors.white),
           ),
         ),
       ),
@@ -270,7 +343,7 @@ class _WindowButtonState extends State<_WindowButton> {
   }
 }
 
-/// 拖拽区域包装（页面内顶部辅助拖拽；避免出现双层标题栏时使用）
+/// 拖拽区域包装（页面内顶部辅助拖拽）
 class DragArea extends StatelessWidget {
   final Widget child;
 
