@@ -107,9 +107,9 @@ class _AboutTab extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              _aboutLine('FMCL 根目录', info?.fmclRoot ?? '-'),
-              _aboutLine('游戏目录', gameDir),
-              _aboutLine('authlib-injector', info?.authlibInjectorDir ?? '-'),
+              _aboutLine(context, 'FMCL 根目录', info?.fmclRoot ?? '-'),
+              _aboutLine(context, '游戏目录', gameDir),
+              _aboutLine(context, 'authlib-injector', info?.authlibInjectorDir ?? '-'),
             ],
           ),
         ),
@@ -123,12 +123,13 @@ class _AboutTab extends ConsumerWidget {
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 8),
-              _aboutLine('项目地址', 'github.com/Ming-QWQ520/FMCL'),
+              _aboutLine(context, '项目地址', 'github.com/Ming-QWQ520/FMCL'),
               _aboutLine(
+                context,
                 '交互与界面',
                 '对齐 Plain Craft Launcher 2（Meloong-Git/PCL）',
               ),
-              _aboutLine('图标资产', 'HMCL 图片资源（img.zip）'),
+              _aboutLine(context, '图标资产', 'HMCL 图片资源（img.zip）'),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -163,7 +164,7 @@ class _AboutTab extends ConsumerWidget {
     );
   }
 
-  Widget _aboutLine(String label, String value) {
+  Widget _aboutLine(BuildContext context, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(

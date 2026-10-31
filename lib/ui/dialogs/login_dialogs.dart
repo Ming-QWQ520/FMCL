@@ -18,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../rust_bridge/rust_bridge.dart' as rust;
 import '../../state/app_providers.dart';
 import '../theme/pcl_theme.dart';
+import '../widgets/common.dart';
 
 /// 登录请求兜底超时（Rust 侧自身超时更短，此处仅防桥路异常挂起）
 const Duration _loginTimeout = Duration(seconds: 90);

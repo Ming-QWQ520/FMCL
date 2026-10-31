@@ -254,16 +254,12 @@ class _AuthTypePillState extends State<_AuthTypePill> {
   }
 
   static String _labelOf(_AuthType t, rust.Account? account) {
-    final has = account != null;
+    final type = account?.accountType;
     return switch (t) {
-      _AuthType.microsoft => has && account!.accountType == 'microsoft'
-          ? '微软正版'
-          : '正版登录',
-      _AuthType.yggdrasil => has && account!.accountType == 'yggdrasil'
-          ? _serverLabel(account)
-          : '外置登录',
-      _AuthType.offline =>
-        has && account!.accountType == 'offline' ? '离线模式' : '离线登录',
+      _AuthType.microsoft => type == 'microsoft' ? '微软正版' : '正版登录',
+      _AuthType.yggdrasil =>
+        type == 'yggdrasil' ? _serverLabel(account!) : '外置登录',
+      _AuthType.offline => type == 'offline' ? '离线模式' : '离线登录',
     };
   }
 
@@ -656,24 +652,27 @@ class _YggdrasilFormState extends ConsumerState<_YggdrasilForm> {
             password: _passC.text,
           )
           .timeout(const Duration(seconds: 90));
-      final profile = session.profiles.length == 1
-          ? session.profiles.first
-          : await showDialog<rust.YggdrasilProfile>(
-              context: context,
-              builder: (dialogContext) => AlertDialog(
-                title: const Text('选择角色'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final p in session.profiles)
-                      ListTile(
-                        title: Text(p.name),
-                        onTap: () => Navigator.of(dialogContext).pop(p),
-                      ),
-                  ],
-                ),
-              ),
-            );
+      rust.YggdrasilProfile? profile;
+      if (session.profiles.length == 1) {
+        profile = session.profiles.first;
+      } else if (mounted) {
+        profile = await showDialog<rust.YggdrasilProfile>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('选择角色'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final p in session.profiles)
+                  ListTile(
+                    title: Text(p.name),
+                    onTap: () => Navigator.of(dialogContext).pop(p),
+                  ),
+              ],
+            ),
+          ),
+        );
+      }
       if (profile != null) {
         await rust.saveYggdrasilAccount(
           apiRoot: session.apiRoot,
@@ -731,7 +730,7 @@ class _LaunchButtonState extends ConsumerState<_LaunchButton> {
     final hasVersion = widget.selected.isNotEmpty;
     final busy = widget.activeCount > 0;
 
-    Future<void> _launch() async {
+    Future<void> doLaunch() async {
       final messenger = ScaffoldMessenger.of(context);
       try {
         await ref
@@ -756,7 +755,7 @@ class _LaunchButtonState extends ConsumerState<_LaunchButton> {
         return;
       }
       if (busy) return;
-      _launch();
+      doLaunch();
     }
 
     final grad = !hasVersion || busy
