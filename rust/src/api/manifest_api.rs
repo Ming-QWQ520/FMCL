@@ -10,7 +10,6 @@
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
-use std::path::PathBuf;
 
 pub const BMCLAPI_ROOT: &str = "https://bmclapi2.bangbang93.com";
 pub const OFFICIAL_MANIFEST: &str = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
@@ -59,7 +58,8 @@ async fn fetch_text_any(client: &reqwest::Client, urls: &[String]) -> Result<Str
 // ---------------------------------------------------------------------------
 
 /// 远程原版版本条目
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RemoteVersionEntry {
     pub id: String,
     /// release / snapshot / old_beta / old_alpha
@@ -73,7 +73,7 @@ pub struct RemoteVersionEntry {
 
 /// 获取原版版本清单（带 10 分钟磁盘缓存）
 pub async fn fetch_remote_versions(bmclapi_first: bool) -> Result<Vec<RemoteVersionEntry>> {
-    let cache = PathBuf::from(crate::core::paths::paths().cache_dir.join("version_manifest.json"));
+    let cache = crate::core::paths::paths().cache_dir.join("version_manifest.json");
     if let Ok(meta) = std::fs::metadata(&cache) {
         if let Ok(modified) = meta.modified() {
             if let Ok(age) = modified.elapsed() {
@@ -143,7 +143,8 @@ fn parse_manifest(json: &Value) -> Option<Vec<RemoteVersionEntry>> {
 // ---------------------------------------------------------------------------
 
 /// 加载器版本条目
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LoaderVersionInfo {
     /// 显示/传给安装的版本号
     pub version: String,
@@ -163,7 +164,7 @@ pub async fn fetch_loader_versions(
     match loader.as_str() {
         "vanilla" => Ok(Vec::new()),
         "fabric" => {
-            let meta = format!("https://meta.fabricmc.net/v2/versions/loader");
+            let meta = "https://meta.fabricmc.net/v2/versions/loader".to_string();
             let bmcl = format!("{BMCLAPI_ROOT}/fabric-meta/v2/versions/loader");
             let urls: Vec<String> = if bmclapi_first { vec![bmcl, meta] } else { vec![meta, bmcl] };
             let json = fetch_json_any(&c, &urls).await?;

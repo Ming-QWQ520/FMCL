@@ -16,7 +16,6 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-type Sink = crate::frb_generated::StreamSink<InstallProgressEvent>;
 type CancelFlag = Arc<std::sync::atomic::AtomicBool>;
 
 // ---------------------------------------------------------------------------
@@ -24,7 +23,8 @@ type CancelFlag = Arc<std::sync::atomic::AtomicBool>;
 // ---------------------------------------------------------------------------
 
 /// 本地版本信息
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LocalVersionInfo {
     pub id: String,
     pub dir: String,
@@ -69,7 +69,7 @@ pub fn scan_local_versions(game_dir: String) -> Result<Vec<LocalVersionInfo>> {
             .unwrap_or(0);
         let size_bytes = dir_size(&dir);
         out.push(LocalVersionInfo {
-            id,
+            id: id.clone(),
             dir: dir.to_string_lossy().into_owned(),
             has_jar: dir.join(format!("{id}.jar")).exists(),
             loader,
@@ -79,7 +79,7 @@ pub fn scan_local_versions(game_dir: String) -> Result<Vec<LocalVersionInfo>> {
             size_bytes,
         });
     }
-    out.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
+    out.sort_by_key(|v| std::cmp::Reverse(v.modified_ms));
     Ok(out)
 }
 
@@ -115,7 +115,7 @@ fn detect_loader(dir: &Path, id: &str) -> (String, String, String) {
             .unwrap_or(false)
         || v["minecraftArguments"].as_str().map(|s| s.contains("OptiFineTweaker")).unwrap_or(false)
     {
-        return ("optifine".into(), String::new(), normalize_mc(&inherits, &id));
+        return ("optifine".into(), String::new(), normalize_mc(&inherits, id));
     }
     if lib_str.contains("net.neoforged:neoforge") || lib_str.contains("net.neoforged:forge") || id_str.contains("neoforge") {
         let ver = lib_str
@@ -124,16 +124,16 @@ fn detect_loader(dir: &Path, id: &str) -> (String, String, String) {
             .and_then(|s| s.split(':').nth(2))
             .unwrap_or("")
             .to_string();
-        return ("neoforge".into(), ver, normalize_mc(&inherits, &id));
+        return ("neoforge".into(), ver, normalize_mc(&inherits, id));
     }
     if lib_str.contains("minecraftforge") || id_str.contains("forge") {
         let ver = lib_str
             .split('|')
             .find(|s| s.contains("net.minecraftforge:forge"))
             .and_then(|s| s.split(':').nth(2))
-            .map(|s| s.split('-').last().unwrap_or(s).to_string())
+            .map(|s| s.split('-').next_back().unwrap_or(s).to_string())
             .unwrap_or_default();
-        return ("forge".into(), ver, normalize_mc(&inherits, &id));
+        return ("forge".into(), ver, normalize_mc(&inherits, id));
     }
     if lib_str.contains("net.fabricmc:fabric-loader") || id_str.contains("fabric") {
         let ver = lib_str
@@ -142,7 +142,7 @@ fn detect_loader(dir: &Path, id: &str) -> (String, String, String) {
             .and_then(|s| s.split(':').nth(2))
             .unwrap_or("")
             .to_string();
-        return ("fabric".into(), ver, normalize_mc(&inherits, &id));
+        return ("fabric".into(), ver, normalize_mc(&inherits, id));
     }
     if lib_str.contains("org.quiltmc:quilt-loader") || id_str.contains("quilt") {
         let ver = lib_str
@@ -151,13 +151,13 @@ fn detect_loader(dir: &Path, id: &str) -> (String, String, String) {
             .and_then(|s| s.split(':').nth(2))
             .unwrap_or("")
             .to_string();
-        return ("quilt".into(), ver, normalize_mc(&inherits, &id));
+        return ("quilt".into(), ver, normalize_mc(&inherits, id));
     }
     if main_class.contains("launchwrapper") && inherits.is_empty() {
         // 旧版 forge（1.6-1.12）：id 常含 forge
-        return ("vanilla".into(), String::new(), normalize_mc(&inherits, &id));
+        return ("vanilla".into(), String::new(), normalize_mc(&inherits, id));
     }
-    ("vanilla".into(), String::new(), normalize_mc(&inherits, &id))
+    ("vanilla".into(), String::new(), normalize_mc(&inherits, id))
 }
 
 fn normalize_mc(inherits: &str, id: &str) -> String {
@@ -364,14 +364,14 @@ pub async fn complete_version(
     bmclapi_first: bool,
     concurrency: i32,
     session_id: String,
-    sink: Sink,
+    em: &crate::bridge::Emitter,
 ) -> Result<()> {
     if !crate::util::cancel::CANCEL_REGISTRY.contains(&session_id) {
         crate::util::cancel::CANCEL_REGISTRY.create(&session_id);
     }
     let cancelled: CancelFlag = crate::util::cancel::CANCEL_REGISTRY.handle(&session_id);
     let emit = |ev: InstallProgressEvent| {
-        let _ = sink.add(ev);
+        em.send(&ev);
     };
     let pg = Progress::new(&emit, cancelled.clone());
     let client = crate::util::http::build_public_client()?;
@@ -381,7 +381,7 @@ pub async fn complete_version(
     anyhow::ensure!(json_path.exists(), "版本 {version_id} 不存在");
 
     let result = run_completion(
-        &client, &game, &version_id, &pg, &sink, bmclapi_first, concurrency.max(1) as usize, &cancelled,
+        &client, &game, &version_id, &pg, em, bmclapi_first, concurrency.max(1) as usize, &cancelled,
     )
     .await;
     match result {
@@ -392,7 +392,7 @@ pub async fn complete_version(
         }
         Err(e) => {
             if !e.to_string().contains("已取消") {
-                let _ = sink.add(InstallProgressEvent {
+                em.send(&InstallProgressEvent {
                     phase: "failed".into(),
                     message: format!("补全失败: {e}"),
                     progress: 0.0,
@@ -409,13 +409,13 @@ async fn run_completion(
     game: &Path,
     version_id: &str,
     pg: &Progress<'_>,
-    sink: &Sink,
+    em: &crate::bridge::Emitter,
     bmclapi_first: bool,
     concurrency: usize,
     cancelled: &CancelFlag,
 ) -> Result<()> {
     let emit = |ev: InstallProgressEvent| {
-        let _ = sink.add(ev);
+        em.send(&ev);
     };
     // 解析版本链
     let leaf = read_version_json(game, version_id)?;
@@ -479,7 +479,7 @@ async fn run_completion(
         if !url.is_empty() {
             let name = log_file["path"]
                 .as_str()
-                .and_then(|p| p.split('/').last())
+                .and_then(|p| p.split('/').next_back())
                 .unwrap_or("client-1.12.xml");
             let save = game.join("assets").join("log_configs").join(name);
             if !save.exists() {
@@ -502,7 +502,7 @@ async fn run_completion(
 // 版本链解析（与 launch 共用逻辑放在 install.rs 之上独立实现）
 // ---------------------------------------------------------------------------
 
-/// 链上单个版本节点（crate 内部使用，不经 FRB 暴露）
+/// 链上单个版本节点（crate 内部使用，不经桥接暴露）
 pub(crate) struct ChainNode {
     pub(crate) id: String,
     pub(crate) raw: Value,
@@ -567,6 +567,8 @@ pub(crate) struct MergedVersion {
     pub(crate) java_major: Option<i32>,
     pub(crate) logging_client: Option<Value>,
     pub(crate) vanilla_download: Option<Value>,
+    /// 叶子节点原始 JSON（保留给调试与扩展读取）
+    #[allow(dead_code)]
     pub(crate) raw: Value,
 }
 

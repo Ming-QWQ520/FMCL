@@ -1,4 +1,4 @@
-//! 内部 HTTP 助手（不在 FRB 暴露范围内）。
+//! 内部 HTTP 助手（不直接经桥接暴露）。
 
 use crate::api::download::{run_one, DownloadFileResult, DownloadItem};
 use anyhow::Result;

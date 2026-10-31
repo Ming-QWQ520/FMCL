@@ -159,7 +159,7 @@ pub async fn spawn_game_process(config: ProcessSpawnConfig) -> Result<i32> {
     Ok(handle_id)
 }
 
-/// 认领进程输出流并建立内部通道（FRB 层与启动管线共用）。
+/// 认领进程输出流并建立内部通道（启动管线内部使用）。
 /// 返回的通道在进程输出结束后自动关闭；同一 handle 只能认领一次。
 pub(crate) fn attach_output_stream_channel(
     handle_id: i32,
@@ -184,21 +184,7 @@ pub(crate) fn attach_output_stream_channel(
     Ok(rx)
 }
 
-/// FRB 接口：认领输出流并回传事件（同一 handle 只能 attach 一次）。
-pub fn attach_output_stream(
-    handle_id: i32,
-    sink: crate::frb_generated::StreamSink<ProcessOutputEvent>,
-) -> Result<()> {
-    let mut rx = attach_output_stream_channel(handle_id)?;
-    tokio::spawn(async move {
-        while let Ok(event) = rx.recv().await {
-            if sink.add(event).is_err() {
-                break;
-            }
-        }
-    });
-    Ok(())
-}
+
 
 fn spawn_pump_channel<R: AsyncRead + Unpin + Send + 'static>(
     reader: R,

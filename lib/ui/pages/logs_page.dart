@@ -36,8 +36,10 @@ class _LogsPageState extends ConsumerState<LogsPage> {
         children: [
           Row(
             children: [
-              const Text('日志',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              const Text(
+                '日志',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
               const SizedBox(width: 12),
               PclTag('exe\\FMCL\\logs'),
               const Spacer(),
@@ -95,37 +97,42 @@ class _LogsPageState extends ConsumerState<LogsPage> {
                     child: Text(
                       _viewFileMode
                           ? (_viewingFile == null
-                              ? '选择一个日志文件查看'
-                              : _viewingFile!
-                                  .split(Platform.pathSeparator)
-                                  .last)
+                                ? '选择一个日志文件查看'
+                                : _viewingFile!
+                                      .split(Platform.pathSeparator)
+                                      .last)
                           : '实时日志（Rust 落盘 exe\\FMCL\\logs\\latest.log）',
                       style: TextStyle(
-                          fontSize: 12,
-                          color: isDark ? Colors.white38 : Colors.black38),
+                        fontSize: 12,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                      ),
                     ),
                   ),
                   const Divider(height: 1),
                   Expanded(
                     child: logs.isEmpty
                         ? const EmptyView(
-                            icon: Icons.article_outlined, text: '暂无日志')
+                            icon: Icons.article_outlined,
+                            text: '暂无日志',
+                          )
                         : NotificationListener<ScrollNotification>(
                             onNotification: (n) => false,
                             child: ListView.builder(
                               controller: _scroll,
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 6),
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
                               itemCount: logs.length,
                               itemBuilder: (context, i) {
                                 final e = logs[i];
                                 final color = e.level == 'ERROR'
                                     ? Colors.red
                                     : e.level == 'WARN'
-                                        ? Colors.orange
-                                        : isDark
-                                            ? Colors.white70
-                                            : Colors.black87;
+                                    ? Colors.orange
+                                    : isDark
+                                    ? Colors.white70
+                                    : Colors.black87;
                                 return SelectableText(
                                   e.time.isEmpty
                                       ? e.message
@@ -135,7 +142,7 @@ class _LogsPageState extends ConsumerState<LogsPage> {
                                     height: 1.45,
                                     fontFamilyFallback: const [
                                       'Consolas',
-                                      'monospace'
+                                      'monospace',
                                     ],
                                     color: color,
                                   ),
@@ -197,8 +204,7 @@ class _LogFileListState extends State<_LogFileList> {
             padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
             child: HoverTile(
               onTap: () => widget.onOpen(f),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               child: Row(
                 children: [
                   Icon(
@@ -213,8 +219,7 @@ class _LogFileListState extends State<_LogFileList> {
                     f.name,
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight:
-                          isCurrent ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
                       color: isCurrent ? kAccent : null,
                     ),
                   ),

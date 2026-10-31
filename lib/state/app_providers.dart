@@ -36,7 +36,16 @@ export '../rust_bridge/rust_bridge.dart'
 // ---------------------------------------------------------------------------
 
 /// 外壳当前页面索引（0 主页 / 1 下载 / 2 账户 / 3 日志 / 4 设置）
-final pageIndexProvider = StateProvider<int>((ref) => 0);
+class PageIndexNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void set(int index) => state = index;
+}
+
+final pageIndexProvider = NotifierProvider<PageIndexNotifier, int>(
+  PageIndexNotifier.new,
+);
 
 /// 应用路径信息（main 已调用 initApp，这里幂等再取）
 final appInfoProvider = FutureProvider<rust.AppInfo>((ref) => rust.initApp());
@@ -69,8 +78,9 @@ class SettingsNotifier extends Notifier<rust.SettingsData> {
   }
 }
 
-final settingsProvider =
-    NotifierProvider<SettingsNotifier, rust.SettingsData>(SettingsNotifier.new);
+final settingsProvider = NotifierProvider<SettingsNotifier, rust.SettingsData>(
+  SettingsNotifier.new,
+);
 
 // ---------------------------------------------------------------------------
 // 账户
@@ -156,8 +166,9 @@ class AccountsNotifier extends Notifier<AccountsState> {
   }
 }
 
-final accountsProvider =
-    NotifierProvider<AccountsNotifier, AccountsState>(AccountsNotifier.new);
+final accountsProvider = NotifierProvider<AccountsNotifier, AccountsState>(
+  AccountsNotifier.new,
+);
 
 // ---------------------------------------------------------------------------
 // 本地版本
@@ -165,8 +176,10 @@ final accountsProvider =
 
 /// 本地版本列表（手动/操作后刷新）
 final localVersionsProvider =
-    NotifierProvider<LocalVersionsNotifier, AsyncValue<List<rust.LocalVersionInfo>>>(
-        LocalVersionsNotifier.new);
+    NotifierProvider<
+      LocalVersionsNotifier,
+      AsyncValue<List<rust.LocalVersionInfo>>
+    >(LocalVersionsNotifier.new);
 
 class LocalVersionsNotifier
     extends Notifier<AsyncValue<List<rust.LocalVersionInfo>>> {
@@ -248,10 +261,11 @@ class LaunchSessionsNotifier extends Notifier<List<LaunchSession>> {
     if (accounts.current == null) {
       throw Exception('尚未登录任何账户，请先在「账户」页添加');
     }
-    await accounts.refreshIfNeeded();
+    await ref.read(accountsProvider.notifier).refreshIfNeeded();
 
     final sessionId = _nextId++;
-    final sessionKey = 'launch-$sessionId-${DateTime.now().millisecondsSinceEpoch}';
+    final sessionKey =
+        'launch-$sessionId-${DateTime.now().millisecondsSinceEpoch}';
     final settings = ref.read(settingsProvider);
     final gameDir = ref.read(gameDirProvider);
 
@@ -332,11 +346,11 @@ class LaunchSessionsNotifier extends Notifier<List<LaunchSession>> {
         _apply(sessionId, ev);
       }
     } catch (e) {
-      _patch(sessionId, (s) => s.copyWith(
-            phase: 'failed',
-            message: '启动失败: $e',
-            isActive: false,
-          ));
+      _patch(
+        sessionId,
+        (s) =>
+            s.copyWith(phase: 'failed', message: '启动失败: $e', isActive: false),
+      );
     }
     _applyLauncherBehavior();
   }
@@ -349,7 +363,8 @@ class LaunchSessionsNotifier extends Notifier<List<LaunchSession>> {
             phase: ev.phase,
             message: ev.message.isNotEmpty ? ev.message : s.message,
             progress: ev.progress > 0 ? ev.progress : s.progress,
-            isActive: ev.phase != 'exited' &&
+            isActive:
+                ev.phase != 'exited' &&
                 ev.phase != 'failed' &&
                 ev.phase != 'cancelled',
           );
@@ -406,7 +421,8 @@ class LaunchSessionsNotifier extends Notifier<List<LaunchSession>> {
 
 final launchSessionsProvider =
     NotifierProvider<LaunchSessionsNotifier, List<LaunchSession>>(
-        LaunchSessionsNotifier.new);
+      LaunchSessionsNotifier.new,
+    );
 
 // ---------------------------------------------------------------------------
 // 安装任务（版本安装 / 补全 / 整合包）
@@ -464,7 +480,8 @@ class InstallTaskNotifier extends Notifier<InstallTaskState> {
           phase: ev.phase,
           message: ev.message,
           progress: ev.progress,
-          running: ev.phase != 'done' &&
+          running:
+              ev.phase != 'done' &&
               ev.phase != 'failed' &&
               ev.phase != 'cancelled',
         );
@@ -485,20 +502,25 @@ class InstallTaskNotifier extends Notifier<InstallTaskState> {
     required int concurrency,
   }) async {
     state = InstallTaskState(
-        title: '补全文件 - $versionId', running: true, message: '校验文件...');
+      title: '补全文件 - $versionId',
+      running: true,
+      message: '校验文件...',
+    );
     try {
       await for (final ev in rust.completeVersion(
         gameDir: gameDir,
         versionId: versionId,
         bmclapiFirst: bmclapiFirst,
         concurrency: concurrency,
-        sessionId: 'complete-$versionId-${DateTime.now().millisecondsSinceEpoch}',
+        sessionId:
+            'complete-$versionId-${DateTime.now().millisecondsSinceEpoch}',
       )) {
         state = state.copyWith(
           phase: ev.phase,
           message: ev.message,
           progress: ev.progress,
-          running: ev.phase != 'done' &&
+          running:
+              ev.phase != 'done' &&
               ev.phase != 'failed' &&
               ev.phase != 'cancelled',
         );
@@ -520,8 +542,11 @@ class InstallTaskNotifier extends Notifier<InstallTaskState> {
     required bool useBmclapi,
     required int concurrency,
   }) async {
-    state =
-        InstallTaskState(title: '安装整合包', running: true, message: '解析整合包...');
+    state = InstallTaskState(
+      title: '安装整合包',
+      running: true,
+      message: '解析整合包...',
+    );
     try {
       final stream = rust.installModpack(
         zipPath: zipPath,
@@ -552,7 +577,8 @@ class InstallTaskNotifier extends Notifier<InstallTaskState> {
 
 final installTaskProvider =
     NotifierProvider<InstallTaskNotifier, InstallTaskState>(
-        InstallTaskNotifier.new);
+      InstallTaskNotifier.new,
+    );
 
 // ---------------------------------------------------------------------------
 // 启动器日志（实时流）
@@ -566,7 +592,8 @@ final appLogStreamProvider = StreamProvider<rust.LogEntry>((ref) {
 /// 最近日志缓存（主页底部条 / 日志页首屏）
 final recentLogsProvider =
     NotifierProvider<RecentLogsNotifier, List<rust.LogEntry>>(
-        RecentLogsNotifier.new);
+      RecentLogsNotifier.new,
+    );
 
 class RecentLogsNotifier extends Notifier<List<rust.LogEntry>> {
   static const int max = 600;
@@ -577,21 +604,24 @@ class RecentLogsNotifier extends Notifier<List<rust.LogEntry>> {
     _ensureSubscribed();
     ref.onDispose(() {
       _subscribed = false;
-      _cancelListen?.call();
+      _cancelListen?.close();
       _cancelListen = null;
     });
     return const [];
   }
 
-  void Function()? _cancelListen;
+  ProviderSubscription<AsyncValue<rust.LogEntry>>? _cancelListen;
 
   void _ensureSubscribed() {
     if (_subscribed) return;
     _subscribed = true;
     // 首屏：读最近日志
-    rust.readRecentLogs(maxLines: 150).then((rows) {
-      if (state.isEmpty) state = rows;
-    }).catchError((_) {});
+    rust
+        .readRecentLogs(maxLines: 150)
+        .then((rows) {
+          if (state.isEmpty) state = rows;
+        })
+        .catchError((_) {});
     // 订阅实时流
     _cancelListen = ref.listen(appLogStreamProvider, (prev, next) {
       next.whenData((entry) {
@@ -608,12 +638,14 @@ class RecentLogsNotifier extends Notifier<List<rust.LogEntry>> {
     final text = await rust.readLogFile(path: path, maxLines: limit);
     final rows = text
         .split('\n')
-        .map((l) => rust.LogEntry(
-              time: '',
-              level: 'INFO',
-              module: 'File',
-              message: l,
-            ))
+        .map(
+          (l) => rust.LogEntry(
+            time: '',
+            level: 'INFO',
+            module: 'File',
+            message: l,
+          ),
+        )
         .toList();
     state = rows;
   }
@@ -629,23 +661,25 @@ class RecentLogsNotifier extends Notifier<List<rust.LogEntry>> {
 // ---------------------------------------------------------------------------
 
 /// 远程原版版本清单
-final remoteVersionsProvider = FutureProvider<List<rust.RemoteVersionEntry>>(
-    (ref) async {
+final remoteVersionsProvider = FutureProvider<List<rust.RemoteVersionEntry>>((
+  ref,
+) async {
   final settings = ref.watch(settingsProvider);
   return rust.fetchRemoteVersions(
-      bmclapiFirst: settings.downloadSourceIndex == 0);
+    bmclapiFirst: settings.downloadSourceIndex == 0,
+  );
 });
 
 /// 加载器版本列表（loader/mc 变化时重新拉取）
 final loaderVersionsProvider = FutureProvider.autoDispose
     .family<List<rust.LoaderVersionInfo>, (String, String)>((ref, key) async {
-  final settings = ref.watch(settingsProvider);
-  return rust.fetchLoaderVersions(
-    loader: key.$1,
-    mcVersion: key.$2,
-    bmclapiFirst: settings.downloadSourceIndex == 0,
-  );
-});
+      final settings = ref.watch(settingsProvider);
+      return rust.fetchLoaderVersions(
+        loader: key.$1,
+        mcVersion: key.$2,
+        bmclapiFirst: settings.downloadSourceIndex == 0,
+      );
+    });
 
 /// Java 运行时列表
 final javasProvider = FutureProvider<List<rust.JavaInfo>>((ref) async {
@@ -705,7 +739,9 @@ class VersionOps {
   }
 
   Future<void> saveSettings(
-      String versionId, rust.VersionSettingsData data) async {
+    String versionId,
+    rust.VersionSettingsData data,
+  ) async {
     await rust.saveVersionSettings(
       gameDir: ref.read(gameDirProvider),
       versionId: versionId,
@@ -714,12 +750,13 @@ class VersionOps {
   }
 }
 
-final versionOpsProvider = Provider<VersionOps>((ref) => VersionOps(ref));
+final versionOpsProvider = Provider<VersionOps>(VersionOps.new);
 
 /// 上次选中版本（持久化在 Rust 设置里）
 final selectedVersionProvider =
     NotifierProvider<SelectedVersionNotifier, String>(
-        SelectedVersionNotifier.new);
+      SelectedVersionNotifier.new,
+    );
 
 class SelectedVersionNotifier extends Notifier<String> {
   @override
@@ -749,9 +786,9 @@ class SelectedVersionNotifier extends Notifier<String> {
   }
 }
 
-/// SettingsData 本地 copyWith 辅助（生成结构无 copyWith，此处集中管理）
-extension SettingsCopy on SettingsData {
-  SettingsData copyWithLocal({
+/// SettingsData 本地 copyWith 辅助（桥接结构无 copyWith，此处集中管理）
+extension SettingsCopy on rust.SettingsData {
+  rust.SettingsData copyWithLocal({
     int? themeMode,
     String? backgroundImagePath,
     int? backgroundOpacity,
@@ -784,7 +821,7 @@ extension SettingsCopy on SettingsData {
     String? lastVersionId,
     bool? onboarded,
   }) {
-    return SettingsData(
+    return rust.SettingsData(
       themeMode: themeMode ?? this.themeMode,
       backgroundImagePath: backgroundImagePath ?? this.backgroundImagePath,
       backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,

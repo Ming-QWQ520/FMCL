@@ -11,7 +11,8 @@ use tokio::process::Command;
 use walkdir::WalkDir;
 
 /// 一个检测到的 Java 运行时
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct JavaInfo {
     /// java 可执行文件绝对路径
     pub java_path: String,

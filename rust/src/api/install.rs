@@ -26,12 +26,13 @@ use std::sync::Arc;
 
 type CancelFlag = Arc<std::sync::atomic::AtomicBool>;
 
-/// 进度事件出口：FRB sink 与内部管线（整合包）共用的抽象。
+/// 进度事件出口：桥接发射器与内部管线（整合包）共用的抽象。
 /// 回调需 Send+Sync（在 await 链路中传递，不进入 'static spawn）。
 pub(crate) type Emit<'a> = &'a (dyn Fn(InstallProgressEvent) + Send + Sync);
 
 /// OptiFine（高清修复）条目
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OptiFineEntry {
     /// 继承的原版版本，如 "1.20.1"
     pub inherit: String,
@@ -43,7 +44,8 @@ pub struct OptiFineEntry {
 }
 
 /// 合并安装请求
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct InstallRequest {
     /// 游戏根目录（.minecraft）
     pub game_dir: String,
@@ -70,7 +72,8 @@ pub struct InstallRequest {
 }
 
 /// 安装进度事件
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstallProgressEvent {
     /// resolve | download | process | merge | finalize | done | failed | cancelled
     pub phase: String,
@@ -309,13 +312,13 @@ pub(crate) async fn run_batch(
 // 主入口
 // ---------------------------------------------------------------------------
 
-/// 执行合并安装（FRB 接口，进度走事件流），返回最终版本 id。
+/// 执行合并安装（桥接接口，进度走事件发射器），返回最终版本 id。
 pub async fn install_combined(
     request: InstallRequest,
-    sink: crate::frb_generated::StreamSink<InstallProgressEvent>,
+    em: &crate::bridge::Emitter,
 ) -> Result<String> {
     install_combined_core(request, move |ev| {
-        let _ = sink.add(ev);
+        em.send(&ev);
     })
     .await
 }
@@ -642,11 +645,11 @@ pub(crate) fn client_urls_for(client_info: &Value, bmclapi_first: bool) -> Vec<S
     let official = client_info["url"].as_str().unwrap_or_default().to_string();
     let bmcl_client = client_info["url"]
         .as_str()
-        .and_then(|u| map_to_bmclapi(u))
+        .and_then(map_to_bmclapi)
         .unwrap_or_default();
     let mut urls = Vec::new();
     if bmclapi_first && !bmcl_client.is_empty() {
-        urls.push(bmcl_client);
+        urls.push(bmcl_client.clone());
     }
     if !official.is_empty() {
         urls.push(official);
@@ -1149,7 +1152,7 @@ async fn run_processors(
         }
         let main_coord = proc_def["jar"].as_str().unwrap_or_default();
         let label = main_coord.split(':').nth(1).unwrap_or(main_coord);
-        let _ = emit(InstallProgressEvent {
+        emit(InstallProgressEvent {
             phase: "process".into(),
             message: format!("执行处理器 {}/{}: {label}", i + 1, total),
             progress: from + (to - from) * (i as f64 / total.max(1) as f64),

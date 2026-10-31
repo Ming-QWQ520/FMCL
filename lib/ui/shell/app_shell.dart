@@ -66,7 +66,8 @@ class _ShellScaffoldState extends ConsumerState<_ShellScaffold> {
               children: [
                 _buildRail(isDark, pageIndex),
                 Expanded(
-                    child: _buildPage(context, settings, isDark, pageIndex)),
+                  child: _buildPage(context, settings, isDark, pageIndex),
+                ),
               ],
             ),
           ),
@@ -88,26 +89,32 @@ class _ShellScaffoldState extends ConsumerState<_ShellScaffold> {
               label: _titles[i],
               selected: pageIndex == i,
               isDark: isDark,
-              onTap: () => ref.read(pageIndexProvider.notifier).state = i,
+              onTap: () => ref.read(pageIndexProvider.notifier).set(i),
             ),
           const Spacer(),
           // 启动中的会话指示
-          Consumer(builder: (context, ref, _) {
-            final sessions = ref.watch(launchSessionsProvider);
-            final active = sessions.where((s) => s.isActive).length;
-            if (active == 0) return const SizedBox(height: 14);
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: PclTag('$active 个游戏运行中', color: Colors.green),
-            );
-          }),
+          Consumer(
+            builder: (context, ref, _) {
+              final sessions = ref.watch(launchSessionsProvider);
+              final active = sessions.where((s) => s.isActive).length;
+              if (active == 0) return const SizedBox(height: 14);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: PclTag('$active 个游戏运行中', color: Colors.green),
+              );
+            },
+          ),
         ],
       ),
     );
   }
 
   Widget _buildPage(
-      BuildContext context, SettingsData settings, bool isDark, int pageIndex) {
+    BuildContext context,
+    SettingsData settings,
+    bool isDark,
+    int pageIndex,
+  ) {
     Widget page;
     switch (pageIndex) {
       case 0:
@@ -137,7 +144,7 @@ class _ShellScaffoldState extends ConsumerState<_ShellScaffold> {
               child: Image.file(
                 File(settings.backgroundImagePath.trim()),
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
               ),
             ),
           ),
@@ -187,8 +194,8 @@ class _RailItemState extends State<_RailItem> {
             color: widget.selected
                 ? kAccent.withAlpha(30)
                 : _hover
-                    ? kAccent.withAlpha(14)
-                    : Colors.transparent,
+                ? kAccent.withAlpha(14)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(9),
           ),
           child: Column(
@@ -196,15 +203,19 @@ class _RailItemState extends State<_RailItem> {
               Icon(
                 widget.icon,
                 size: 21,
-                color: accent ?? (widget.isDark ? Colors.white60 : Colors.black54),
+                color:
+                    accent ?? (widget.isDark ? Colors.white60 : Colors.black54),
               ),
               const SizedBox(height: 3),
               Text(
                 widget.label,
                 style: TextStyle(
                   fontSize: 11,
-                  fontWeight: widget.selected ? FontWeight.w700 : FontWeight.w500,
-                  color: accent ??
+                  fontWeight: widget.selected
+                      ? FontWeight.w700
+                      : FontWeight.w500,
+                  color:
+                      accent ??
                       (widget.isDark ? Colors.white54 : Colors.black45),
                 ),
               ),

@@ -3,8 +3,9 @@
 use crate::core::settings as s;
 use anyhow::Result;
 
-/// 全局设置（FRB 映射结构，与 core::settings::AppSettings 字段一一对应）
-#[derive(Debug, Clone, Default)]
+/// 全局设置（桥接映射结构，与 core::settings::AppSettings 字段一一对应）
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct SettingsData {
     pub theme_mode: i32,
     pub background_image_path: String,
@@ -148,7 +149,8 @@ pub fn set_last_account(account_id: String) -> Result<()> {
 }
 
 /// 版本设置（缺省字段 = 跟随全局）
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct VersionSettingsData {
     pub isolation: Option<bool>,
     pub java_path: Option<String>,

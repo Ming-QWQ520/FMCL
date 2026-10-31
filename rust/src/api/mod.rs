@@ -1,4 +1,4 @@
-//! FRB 暴露的 API 模块集合。
+//! 面向桥接层的业务 API 模块集合。
 
 pub mod app;
 pub mod archive;

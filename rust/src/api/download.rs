@@ -8,7 +8,7 @@
 //! - 聚合进度事件流（Rust 侧 100ms 节流，避免 Dart 层回调风暴）
 //! - 会话级取消
 //!
-//! 通过 StreamSink 以事件流形式回传进度，FRB 会将其映射为 Dart Stream。
+//! 通过桥接事件发射器回传进度（100ms 节流，Dart 侧还原为 Stream）。
 
 use crate::util::cancel::CANCEL_REGISTRY;
 use anyhow::Result;
@@ -19,7 +19,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
 
 /// 单个下载任务描述
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct DownloadItem {
     pub url: String,
     pub save_path: String,
@@ -32,7 +33,8 @@ pub struct DownloadItem {
 }
 
 /// 下载进度事件
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DownloadProgressEvent {
     /// "progress" | "file_done" | "file_failed" | "done" | "cancelled"
     pub kind: String,
@@ -87,13 +89,13 @@ pub async fn download_batch(
     concurrency: i32,
     session_id: String,
     user_agent: Option<String>,
-    sink: crate::frb_generated::StreamSink<DownloadProgressEvent>,
+    em: &crate::bridge::Emitter,
 ) {
     let cancelled = CANCEL_REGISTRY.handle(&session_id);
     let client = match build_client(user_agent) {
         Ok(c) => c,
         Err(e) => {
-            let _ = sink.add(DownloadProgressEvent {
+            em.send(&DownloadProgressEvent {
                 kind: "file_failed".into(),
                 finished_files: 0,
                 failed_files: items.len() as i32,
@@ -126,7 +128,7 @@ pub async fn download_batch(
         let total_bytes = total_bytes.clone();
         let speed_bps = speed_bps.clone();
         let cancelled = cancelled.clone();
-        let reporter_sink = sink.clone();
+        let reporter_sink = em.clone();
         tokio::spawn(async move {
             let mut last_bytes = 0i64;
             loop {
@@ -135,7 +137,7 @@ pub async fn download_batch(
                 speed_bps.store((now_bytes - last_bytes) * 10, Ordering::Relaxed);
                 last_bytes = now_bytes;
                 let is_cancelled = cancelled.load(Ordering::Relaxed);
-                let _ = reporter_sink.add(DownloadProgressEvent {
+                reporter_sink.send(&DownloadProgressEvent {
                     kind: if is_cancelled { "cancelled" } else { "progress" }.into(),
                     finished_files: finished.load(Ordering::Relaxed),
                     failed_files: failed.load(Ordering::Relaxed),
@@ -185,7 +187,7 @@ pub async fn download_batch(
                 } else {
                     failed.fetch_add(1, Ordering::Relaxed);
                 }
-                let _ = sink.add(DownloadProgressEvent {
+                em.send(&DownloadProgressEvent {
                     kind: if success { "file_done" } else { "file_failed" }.into(),
                     finished_files: finished.load(Ordering::Relaxed),
                     failed_files: failed.load(Ordering::Relaxed),
@@ -199,7 +201,7 @@ pub async fn download_batch(
             }
             Err(e) => {
                 failed.fetch_add(1, Ordering::Relaxed);
-                let _ = sink.add(DownloadProgressEvent {
+                em.send(&DownloadProgressEvent {
                     kind: "file_failed".into(),
                     finished_files: finished.load(Ordering::Relaxed),
                     failed_files: failed.load(Ordering::Relaxed),
@@ -216,7 +218,7 @@ pub async fn download_batch(
 
     reporter.abort();
     let is_cancelled = cancelled.load(Ordering::Relaxed);
-    let _ = sink.add(DownloadProgressEvent {
+    em.send(&DownloadProgressEvent {
         kind: if is_cancelled { "cancelled" } else { "done" }.into(),
         finished_files: finished.load(Ordering::Relaxed),
         failed_files: failed.load(Ordering::Relaxed),

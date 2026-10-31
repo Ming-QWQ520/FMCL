@@ -7,6 +7,7 @@ library;
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
@@ -118,7 +119,9 @@ class _FmclTitleBarState extends ConsumerState<FmclTitleBar>
                         const SizedBox(width: 10),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 1.5),
+                            horizontal: 8,
+                            vertical: 1.5,
+                          ),
                           decoration: BoxDecoration(
                             color: kAccent.withAlpha(22),
                             borderRadius: BorderRadius.circular(6),
@@ -177,7 +180,9 @@ class _FmclTitleBarState extends ConsumerState<FmclTitleBar>
               try {
                 final size = await windowManager.getSize();
                 final s = ref.read(settingsProvider);
-                await ref.read(settingsProvider.notifier).update(
+                await ref
+                    .read(settingsProvider.notifier)
+                    .update(
                       s.copyWithLocal(
                         windowLauncherWidth: size.width.toInt(),
                         windowLauncherHeight: size.height.toInt(),
@@ -250,8 +255,8 @@ class _WindowButtonState extends State<_WindowButton> {
             color: _pressed
                 ? widget.pressedFill
                 : _hover
-                    ? widget.hoverFill
-                    : Colors.transparent,
+                ? widget.hoverFill
+                : Colors.transparent,
             alignment: Alignment.center,
             child: Icon(
               widget.icon,

@@ -31,21 +31,23 @@ class InstallTaskDialog extends ConsumerWidget {
                     task.error != null
                         ? Icons.error_outline_rounded
                         : finished && task.phase == 'done'
-                            ? Icons.check_circle_outline_rounded
-                            : Icons.downloading_rounded,
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.downloading_rounded,
                     size: 22,
                     color: task.error != null
                         ? kDanger
                         : finished && task.phase == 'done'
-                            ? Colors.green
-                            : kAccent,
+                        ? Colors.green
+                        : kAccent,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       task.title.isEmpty ? '任务进行中' : task.title,
                       style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w800),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -65,8 +67,8 @@ class InstallTaskDialog extends ConsumerWidget {
                   color: task.error != null
                       ? kDanger
                       : Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white54
-                          : Colors.black45,
+                      ? Colors.white54
+                      : Colors.black45,
                 ),
               ),
               const SizedBox(height: 16),

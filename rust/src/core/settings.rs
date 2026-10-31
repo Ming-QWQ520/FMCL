@@ -2,6 +2,7 @@
 //!
 //! - 全局设置：`<FMCL 根>/config.json`
 //! - 每版本设置：`<gameDir>/versions/<id>/fmcl-settings.json`
+//!
 //! 语义与字段与 PCL2「设置 / 版本设置」一致：版本字段缺省 = 跟随全局。
 
 use anyhow::Result;

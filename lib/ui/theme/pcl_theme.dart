@@ -19,20 +19,22 @@ const Color kDarkPanel = Color(0xFF282A2E);
 
 ThemeData buildTheme(Brightness brightness) {
   final isDark = brightness == Brightness.dark;
-  final scheme = ColorScheme.fromSeed(
-    seedColor: kAccent,
-    brightness: brightness,
-  ).copyWith(
-    primary: kAccent,
-    secondary: kAccent,
-    surface: isDark ? kDarkPanel : kLightPanel,
-    error: kDanger,
-  );
+  final scheme =
+      ColorScheme.fromSeed(seedColor: kAccent, brightness: brightness).copyWith(
+        primary: kAccent,
+        secondary: kAccent,
+        surface: isDark ? kDarkPanel : kLightPanel,
+        error: kDanger,
+      );
   final base = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: isDark ? kDarkBg : kLightBg,
-    fontFamilyFallback: const ['Microsoft YaHei UI', 'Microsoft YaHei', 'sans-serif'],
+    fontFamilyFallback: const [
+      'Microsoft YaHei UI',
+      'Microsoft YaHei',
+      'sans-serif',
+    ],
   );
   return base.copyWith(
     splashFactory: InkRipple.splashFactory,
@@ -56,13 +58,17 @@ ThemeData buildTheme(Brightness brightness) {
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide(
-          color: isDark ? Colors.white.withAlpha(28) : Colors.black.withAlpha(28),
+          color: isDark
+              ? Colors.white.withAlpha(28)
+              : Colors.black.withAlpha(28),
         ),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide(
-          color: isDark ? Colors.white.withAlpha(28) : Colors.black.withAlpha(28),
+          color: isDark
+              ? Colors.white.withAlpha(28)
+              : Colors.black.withAlpha(28),
         ),
       ),
       focusedBorder: OutlineInputBorder(

@@ -3,7 +3,8 @@
 use serde::Deserialize;
 
 /// 操作系统类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum OsKind {
     Windows,
     Linux,
@@ -13,7 +14,8 @@ pub enum OsKind {
 }
 
 /// CPU / 内存等架构信息
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemInfo {
     pub os: OsKind,
     /// 例如 "x86_64" / "aarch64"

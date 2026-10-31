@@ -6,8 +6,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// 统一账户模型
+/// 统一账户模型（camelCase 与 Dart 层一一对应）
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Account {
     pub id: String,
     /// offline | microsoft | yggdrasil
@@ -124,7 +125,7 @@ pub fn offline_uuid(player_name: &str) -> String {
     let mut hasher = Md5::new();
     hasher.update(format!("OfflinePlayer:{player_name}").as_bytes());
     let bytes = hasher.finalize();
-    let mut b = bytes.0;
+    let mut b: [u8; 16] = bytes.into();
     b[6] = (b[6] & 0x0f) | 0x30;
     b[8] = (b[8] & 0x3f) | 0x80;
     let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();

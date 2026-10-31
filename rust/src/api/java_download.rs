@@ -142,28 +142,28 @@ pub async fn adoptium_latest_jre(major: i32) -> Result<AdoptiumAsset> {
     })
 }
 
-/// 安装 Java 运行时到 `runtime_root` 目录（FRB 接口，进度走事件流）。
+/// 安装 Java 运行时到 `runtime_root` 目录（桥接接口，进度走事件发射器）。
 ///
-/// 返回 java 可执行文件路径。依赖 Dart 侧先建立下载会话（复用取消注册表）。
+/// 返回 java 可执行文件路径。依赖调用方先建立取消会话（复用取消注册表）。
 pub async fn install_java(
     major: i32,
     runtime_root: String,
     session_id: String,
-    sink: crate::frb_generated::StreamSink<JavaInstallProgress>,
+    em: &crate::bridge::Emitter,
 ) {
     let mut notify = |p: JavaInstallProgress| {
-        let _ = sink.add(p);
+        em.send(&p);
     };
     match install_java_core(major, &runtime_root, &session_id, &mut notify).await {
         Ok(_) => {
-            let _ = sink.add(JavaInstallProgress {
+            em.send(&JavaInstallProgress {
                 phase: "done".into(),
                 message: "Java 安装完成".into(),
                 progress: Some(1.0),
             });
         }
         Err(e) => {
-            let _ = sink.add(JavaInstallProgress {
+            em.send(&JavaInstallProgress {
                 phase: "failed".into(),
                 message: format!("Java 安装失败: {e}"),
                 progress: None,
@@ -188,7 +188,7 @@ async fn install_java_core(
     major: i32,
     runtime_root: &str,
     session_id: &str,
-    notify: &mut dyn FnMut(JavaInstallProgress),
+    notify: &mut (dyn FnMut(JavaInstallProgress) + Send),
 ) -> Result<PathBuf> {
     let cancelled = CANCEL_REGISTRY.handle(session_id);
 
@@ -280,7 +280,7 @@ async fn install_java_core(
         std::fs::remove_dir_all(&staging)?;
     }
     std::fs::create_dir_all(&staging)?;
-    let _ = notify(JavaInstallProgress {
+    notify(JavaInstallProgress {
         phase: "extract".into(),
         message: "解压运行时...".into(),
         progress: Some(0.95),

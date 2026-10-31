@@ -82,8 +82,8 @@ fn rotate_old_logs(dir: &PathBuf) {
 }
 
 fn now_string() -> String {
-    let now = chrono_now();
-    now
+    
+    chrono_now()
 }
 
 /// 无 chrono 依赖的本地时间格式化（秒 + 毫秒）
@@ -196,7 +196,7 @@ pub fn subscribe() -> Option<broadcast::Receiver<LogEntry>> {
 }
 
 /// 读取 latest.log 末尾若干行（用于 UI 首屏展示）
-pub fn read_tail(dir: &PathBuf, max_lines: usize) -> Vec<LogEntry> {
+pub fn read_tail(dir: &std::path::Path, max_lines: usize) -> Vec<LogEntry> {
     let path = dir.join("latest.log");
     let Ok(content) = std::fs::read_to_string(&path) else {
         return Vec::new();

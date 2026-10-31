@@ -9,7 +9,8 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 /// 应用路径信息（一次性返回给 Flutter）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     pub app_version: String,
     pub exe_dir: String,
@@ -57,24 +58,13 @@ pub fn init_app() -> Result<AppInfo> {
     })
 }
 
-/// 订阅启动器实时日志流（UI 日志页）
-pub fn subscribe_app_logs(sink: crate::frb_generated::StreamSink<LogEntry>) -> Result<()> {
-    let rx = crate::core::logging::subscribe()
+/// 订阅启动器实时日志流（UI 日志页）。
+///
+/// 日志由 `bridge::fmcl_init` 以 `app_log` 事件持续推送，
+/// 此处仅为语义占位：确认日志系统已初始化。
+pub fn subscribe_app_logs() -> Result<()> {
+    crate::core::logging::subscribe()
         .ok_or_else(|| anyhow::anyhow!("日志系统尚未初始化"))?;
-    tokio::spawn(async move {
-        let mut rx = rx;
-        loop {
-            match rx.recv().await {
-                Ok(entry) => {
-                    if sink.add(entry).is_err() {
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(_) => break,
-            }
-        }
-    });
     Ok(())
 }
 
@@ -115,12 +105,13 @@ pub fn list_log_files() -> Result<Vec<LogFileMeta>> {
             });
         }
     }
-    out.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
+    out.sort_by_key(|f| std::cmp::Reverse(f.modified_ms));
     Ok(out)
 }
 
 /// 日志文件元信息
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogFileMeta {
     pub name: String,
     pub path: String,

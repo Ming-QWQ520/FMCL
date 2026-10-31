@@ -79,7 +79,8 @@ pub fn save_account(account: Account) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// 服务端元数据
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct YggdrasilServerMeta {
     pub api_root: String,
     pub server_name: String,
@@ -144,14 +145,15 @@ pub async fn yggdrasil_server_meta(server_url: String) -> Result<YggdrasilServer
 }
 
 /// 外置角色档案
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct YggdrasilProfile {
     pub id: String,
     pub name: String,
 }
 
 /// 登录会话
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct YggdrasilSession {
     pub access_token: String,
     pub client_token: String,
@@ -178,8 +180,9 @@ pub async fn yggdrasil_login(
         .send()
         .await
         .map_err(|e| anyhow!("登录请求失败: {e}"))?;
+    let status = resp.status();
     let data: Value = resp.json().await.unwrap_or(Value::Null);
-    if !resp.status().is_success() {
+    if !status.is_success() {
         let msg = data["errorMessage"]
             .as_str()
             .unwrap_or("认证失败")
@@ -294,7 +297,8 @@ const MC_LOGIN_URL: &str = "https://api.minecraftservices.com/authentication/log
 const MC_PROFILE_URL: &str = "https://api.minecraftservices.com/minecraft/profile";
 
 /// 微软登录事件
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MsLoginEvent {
     /// device_code | polling | profile | done | failed
     pub step: String,
@@ -305,13 +309,11 @@ pub struct MsLoginEvent {
     pub verification_uri: String,
 }
 
-/// 发起微软设备码登录，事件经流回传；返回已保存的账户。
-pub async fn microsoft_login(
-    sink: crate::frb_generated::StreamSink<MsLoginEvent>,
-) -> Result<Account> {
+/// 发起微软设备码登录，事件经桥接发射器回传；返回已保存的账户。
+pub async fn microsoft_login(em: &crate::bridge::Emitter) -> Result<Account> {
     let c = client()?;
     let emit = |step: &str, msg: &str, code: &str, uri: &str| {
-        let _ = sink.add(MsLoginEvent {
+        em.send(&MsLoginEvent {
             step: step.into(),
             message: msg.into(),
             user_code: code.into(),
@@ -363,9 +365,10 @@ pub async fn microsoft_login(
             .await
             .map_err(|e| anyhow!("轮询微软服务器失败: {e}"))?;
         let tdata: Value = tres.json().await.unwrap_or(Value::Null);
-        if let Some(tok) = tdata["access_token"].as_str() {
+        let fresh = tdata["access_token"].as_str().map(|s| s.to_string());
+        if let Some(tok) = fresh {
             data = tdata;
-            break tok.to_string();
+            break tok;
         }
         let error = tdata["error"].as_str().unwrap_or("");
         match error {
@@ -581,7 +584,7 @@ pub async fn ensure_authlib_injector() -> Result<String> {
 
     if jar.exists() && !local_version.is_empty() {
         crate::log_info!("Auth", "authlib-injector {local_version} 已就绪: {}", jar.display());
-        return Ok(jar);
+        return Ok(jar.to_string_lossy().into_owned());
     }
 
     crate::log_info!("Auth", "下载 authlib-injector → {}", jar.display());

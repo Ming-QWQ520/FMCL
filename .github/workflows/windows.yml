@@ -25,15 +25,15 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      # flutter_rust_bridge 代码生成所需（安装结果缓存，二次运行秒级）
-      - name: Cache cargo (FRB codegen)
+      # Rust 依赖缓存（二次构建提速）
+      - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin
-          key: frb-codegen-2.13.0-v1
+          key: cargo-registry-${{ hashFiles('rust/Cargo.lock') }}
+          restore-keys: cargo-registry-
 
       # 直接从 Google 官方发布站下载（runner 位于海外，直连官方源快且稳定）
       - name: Cache Flutter SDK
@@ -62,13 +62,10 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
-      - name: Install flutter_rust_bridge_codegen 2.13.0
-        run: cargo install flutter_rust_bridge_codegen@2.13.0 --locked
+      # 快速失败：在进入耗时 2 分钟的 flutter build 前，先做静态检查
+      - name: Dart analyze (fast fail)
+        run: flutter analyze --fatal-infos
 
-      - name: Generate bridge bindings
-        run: flutter_rust_bridge_codegen generate
-
-      # 快速失败：在进入耗时 2 分钟的 flutter build 前，先完整检查 Rust 代码
       - name: Cargo check (fast fail)
         working-directory: rust
         shell: pwsh

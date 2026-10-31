@@ -1,6 +1,7 @@
 //! Java 运行时管理 API。
 
 use crate::api::java::{find_java_candidates, probe_java, JavaInfo};
+use anyhow::Result;
 
 /// 探测并列出全部可用 Java 运行时（并行探测，按主版本升序）
 pub async fn detect_javas(extra_dirs: Vec<String>) -> Result<Vec<JavaInfo>> {
@@ -27,14 +28,14 @@ pub async fn validate_java(java_path: String) -> Result<JavaInfo> {
     probe_java(java_path).await
 }
 
-/// 自动安装指定主版本 Java（Adoptium，进度走事件流）
+/// 自动安装指定主版本 Java（Adoptium，进度走事件发射器）
 pub async fn download_java(
     major: i32,
     session_id: String,
-    sink: crate::frb_generated::StreamSink<crate::api::java_download::JavaInstallProgress>,
+    em: &crate::bridge::Emitter,
 ) -> Result<()> {
     let root = crate::core::paths::paths().java_dir.to_string_lossy().into_owned();
-    crate::api::java_download::install_java(major, root, session_id, sink).await;
+    crate::api::java_download::install_java(major, root, session_id, em).await;
     Ok(())
 }
 

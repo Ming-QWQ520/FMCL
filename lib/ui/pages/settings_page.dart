@@ -111,7 +111,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             height: 32,
             onTap: () async {
               final dir = await FilePicker.platform.getDirectoryPath(
-                  dialogTitle: '选择游戏根目录');
+                dialogTitle: '选择游戏根目录',
+              );
               if (dir == null) return;
               await _update(ref, s.copyWithLocal(gameDirectory: dir));
               await ref.read(localVersionsProvider.notifier).refresh();
@@ -180,7 +181,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           child: Segmented(
             items: const ['保持', '隐藏', '关闭'],
             index: s.launcherBehavior.clamp(0, 2),
-            onChanged: (i) => _update(ref, s.copyWithLocal(launcherBehavior: i)),
+            onChanged: (i) =>
+                _update(ref, s.copyWithLocal(launcherBehavior: i)),
           ),
         ),
         SettingRow(
@@ -202,7 +204,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             child: TextField(
               controller: TextEditingController(text: s.serverAddress),
               decoration: const InputDecoration(hintText: '例: mc.example.com'),
-              onChanged: (v) => _updateDebounced(ref, s, (n) => n.copyWithLocal(serverAddress: v.trim())),
+              onChanged: (v) => _updateDebounced(
+                ref,
+                s,
+                (n) => n.copyWithLocal(serverAddress: v.trim()),
+              ),
             ),
           ),
         ),
@@ -213,7 +219,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             width: 260,
             child: TextField(
               controller: TextEditingController(text: s.preLaunchCommand),
-              onChanged: (v) => _updateDebounced(ref, s, (n) => n.copyWithLocal(preLaunchCommand: v)),
+              onChanged: (v) => _updateDebounced(
+                ref,
+                s,
+                (n) => n.copyWithLocal(preLaunchCommand: v),
+              ),
             ),
           ),
         ),
@@ -224,7 +234,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             width: 220,
             child: TextField(
               controller: TextEditingController(text: s.wrapperCommand),
-              onChanged: (v) => _updateDebounced(ref, s, (n) => n.copyWithLocal(wrapperCommand: v)),
+              onChanged: (v) => _updateDebounced(
+                ref,
+                s,
+                (n) => n.copyWithLocal(wrapperCommand: v),
+              ),
             ),
           ),
         ),
@@ -244,11 +258,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 child: TextField(
                   keyboardType: TextInputType.number,
                   enabled: !s.fullscreen,
-                  controller:
-                      TextEditingController(text: s.windowWidth > 0 ? '${s.windowWidth}' : ''),
+                  controller: TextEditingController(
+                    text: s.windowWidth > 0 ? '${s.windowWidth}' : '',
+                  ),
                   decoration: const InputDecoration(hintText: '宽'),
-                  onChanged: (v) => _updateDebounced(ref, s,
-                      (n) => n.copyWithLocal(windowWidth: int.tryParse(v) ?? 0)),
+                  onChanged: (v) => _updateDebounced(
+                    ref,
+                    s,
+                    (n) => n.copyWithLocal(windowWidth: int.tryParse(v) ?? 0),
+                  ),
                 ),
               ),
               const SizedBox(width: 6),
@@ -257,11 +275,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 child: TextField(
                   keyboardType: TextInputType.number,
                   enabled: !s.fullscreen,
-                  controller:
-                      TextEditingController(text: s.windowHeight > 0 ? '${s.windowHeight}' : ''),
+                  controller: TextEditingController(
+                    text: s.windowHeight > 0 ? '${s.windowHeight}' : '',
+                  ),
                   decoration: const InputDecoration(hintText: '高'),
-                  onChanged: (v) => _updateDebounced(ref, s,
-                      (n) => n.copyWithLocal(windowHeight: int.tryParse(v) ?? 0)),
+                  onChanged: (v) => _updateDebounced(
+                    ref,
+                    s,
+                    (n) => n.copyWithLocal(windowHeight: int.tryParse(v) ?? 0),
+                  ),
                 ),
               ),
             ],
@@ -271,7 +293,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         const SectionTitle('环境变量'),
         _EnvEditor(
           lines: s.launchEnvironment,
-          onChanged: (lines) => _update(ref, s.copyWithLocal(launchEnvironment: lines)),
+          onChanged: (lines) =>
+              _update(ref, s.copyWithLocal(launchEnvironment: lines)),
         ),
       ],
     );
@@ -296,7 +319,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   controller: TextEditingController(text: '${s.minMemoryMb}'),
                   decoration: const InputDecoration(labelText: '最小'),
                   onChanged: (v) => _updateDebounced(
-                      ref, s, (n) => n.copyWithLocal(minMemoryMb: int.tryParse(v) ?? 512)),
+                    ref,
+                    s,
+                    (n) => n.copyWithLocal(minMemoryMb: int.tryParse(v) ?? 512),
+                  ),
                 ),
               ),
               const Padding(
@@ -310,7 +336,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   controller: TextEditingController(text: '${s.maxMemoryMb}'),
                   decoration: const InputDecoration(labelText: '最大'),
                   onChanged: (v) => _updateDebounced(
-                      ref, s, (n) => n.copyWithLocal(maxMemoryMb: int.tryParse(v) ?? 2048)),
+                    ref,
+                    s,
+                    (n) =>
+                        n.copyWithLocal(maxMemoryMb: int.tryParse(v) ?? 2048),
+                  ),
                 ),
               ),
             ],
@@ -328,7 +358,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       Icon(
                         Icons.local_fire_department_rounded,
                         size: 18,
-                        color: j.majorVersion >= 17 ? Colors.orange : Colors.brown,
+                        color: j.majorVersion >= 17
+                            ? Colors.orange
+                            : Colors.brown,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -338,16 +370,20 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                             Text(
                               'Java ${j.majorVersion} · ${j.versionString}',
                               style: const TextStyle(
-                                  fontSize: 13, fontWeight: FontWeight.w600),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                             Text(
                               '${j.vendor} · ${j.javaPath}',
                               style: TextStyle(
-                                  fontSize: 11,
-                                  color:
-                                      Theme.of(context).brightness == Brightness.dark
-                                          ? Colors.white35
-                                          : Colors.black35),
+                                fontSize: 11,
+                                color:
+                                    Theme.of(context).brightness ==
+                                        Brightness.dark
+                                    ? Colors.white38
+                                    : Colors.black38,
+                              ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -370,10 +406,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             width: 300,
             child: TextField(
               controller: TextEditingController(text: s.javaPath),
-              decoration: const InputDecoration(
-                  hintText: 'javaw.exe 完整路径'),
-              onChanged: (v) =>
-                  _updateDebounced(ref, s, (n) => n.copyWithLocal(javaPath: v.trim())),
+              decoration: const InputDecoration(hintText: 'javaw.exe 完整路径'),
+              onChanged: (v) => _updateDebounced(
+                ref,
+                s,
+                (n) => n.copyWithLocal(javaPath: v.trim()),
+              ),
             ),
           ),
         ),
@@ -386,7 +424,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             height: 32,
             onTap: () async {
               final dir = await FilePicker.platform.getDirectoryPath(
-                  dialogTitle: '选择 Java 搜索目录');
+                dialogTitle: '选择 Java 搜索目录',
+              );
               if (dir == null) return;
               final next = [...s.javaSearchPaths, dir];
               _update(ref, s.copyWithLocal(javaSearchPaths: next));
@@ -399,13 +438,23 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             child: Row(
               children: [
                 const Icon(Icons.subdirectory_arrow_right_rounded, size: 15),
-                Expanded(child: Text(p, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5))),
+                Expanded(
+                  child: Text(
+                    p,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12.5),
+                  ),
+                ),
                 IconButton(
                   icon: const Icon(Icons.close_rounded, size: 16),
                   onPressed: () => _update(
-                      ref,
-                      s.copyWithLocal(
-                          javaSearchPaths: s.javaSearchPaths.where((x) => x != p).toList())),
+                    ref,
+                    s.copyWithLocal(
+                      javaSearchPaths: s.javaSearchPaths
+                          .where((x) => x != p)
+                          .toList(),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -420,8 +469,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             child: TextField(
               maxLines: 2,
               controller: TextEditingController(text: s.jvmArguments),
-              onChanged: (v) =>
-                  _updateDebounced(ref, s, (n) => n.copyWithLocal(jvmArguments: v)),
+              onChanged: (v) => _updateDebounced(
+                ref,
+                s,
+                (n) => n.copyWithLocal(jvmArguments: v),
+              ),
             ),
           ),
         ),
@@ -433,8 +485,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             child: TextField(
               maxLines: 2,
               controller: TextEditingController(text: s.gameArguments),
-              onChanged: (v) =>
-                  _updateDebounced(ref, s, (n) => n.copyWithLocal(gameArguments: v)),
+              onChanged: (v) => _updateDebounced(
+                ref,
+                s,
+                (n) => n.copyWithLocal(gameArguments: v),
+              ),
             ),
           ),
         ),
@@ -475,7 +530,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               keyboardType: TextInputType.number,
               controller: TextEditingController(text: '${s.concurrency}'),
               onChanged: (v) => _updateDebounced(
-                  ref, s, (n) => n.copyWithLocal(concurrency: int.tryParse(v) ?? 32)),
+                ref,
+                s,
+                (n) => n.copyWithLocal(concurrency: int.tryParse(v) ?? 32),
+              ),
             ),
           ),
         ),
@@ -553,7 +611,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               divisions: 20,
               activeColor: kAccent,
               onChanged: (v) => _updateDebounced(
-                  ref, s, (n) => n.copyWithLocal(backgroundOpacity: v.toInt())),
+                ref,
+                s,
+                (n) => n.copyWithLocal(backgroundOpacity: v.toInt()),
+              ),
             ),
           ),
         ),
@@ -568,7 +629,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   void _updateDebounced(
-      WidgetRef ref, SettingsData current, SettingsData Function(SettingsData) f) {
+    WidgetRef ref,
+    SettingsData current,
+    SettingsData Function(SettingsData) f,
+  ) {
     // 简单策略：每次变更立即保存（Rust 侧写盘为原子操作，代价可接受）
     _update(ref, f(current));
   }
@@ -603,8 +667,9 @@ class _EnvEditorState extends State<_EnvEditor> {
         labelText: '游戏进程环境变量（每行 KEY=VALUE）',
         hintText: 'JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8',
       ),
-      onChanged: (v) => widget
-          .onChanged(v.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList()),
+      onChanged: (v) => widget.onChanged(
+        v.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList(),
+      ),
     );
   }
 }

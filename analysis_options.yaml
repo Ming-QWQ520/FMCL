@@ -3,13 +3,17 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - "**/*.g.dart"
-    - "lib/src/rust/**"
     - "lib/rust/**"
     - "rust_builder/**"
     - build/**
-    - android/**
     - windows/**
     - linux/**
+    - android/**
+  language:
+    # 严格类型检查（dart-run-static-analysis skill 建议）
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
 
 linter:
   rules:
@@ -25,4 +29,3 @@ linter:
     prefer_const_constructors: false
     unawaited_futures: false
     omit_local_variable_types: false
-

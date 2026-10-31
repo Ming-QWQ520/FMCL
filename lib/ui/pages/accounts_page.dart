@@ -22,7 +22,8 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback(
-        (_) => ref.read(accountsProvider.notifier).reload());
+      (_) => ref.read(accountsProvider.notifier).reload(),
+    );
   }
 
   @override
@@ -36,8 +37,10 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
         children: [
           Row(
             children: [
-              const Text('账户',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              const Text(
+                '账户',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
               const SizedBox(width: 12),
               PclTag('支持离线 / 微软 / 外置（authlib-injector）'),
               const Spacer(),
@@ -66,27 +69,32 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
             child: accounts.accounts.isEmpty
                 ? const EmptyView(
                     icon: Icons.person_off_outlined,
-                    text: '尚未添加账户，启动前需要先登录')
+                    text: '尚未添加账户，启动前需要先登录',
+                  )
                 : ListView.separated(
                     itemCount: accounts.accounts.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 6),
+                    separatorBuilder: (_, _) => const SizedBox(height: 6),
                     itemBuilder: (context, i) {
                       final a = accounts.accounts[i];
                       final isCurrent = accounts.current?.id == a.id;
                       return PclPanel(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
                         child: Row(
                           children: [
                             CircleAvatar(
                               radius: 20,
-                              backgroundColor: _typeColor(a.accountType).withAlpha(30),
+                              backgroundColor: _typeColor(
+                                a.accountType,
+                              ).withAlpha(30),
                               child: Icon(
                                 a.accountType == 'microsoft'
                                     ? Icons.verified_user_rounded
                                     : a.accountType == 'yggdrasil'
-                                        ? Icons.dns_rounded
-                                        : Icons.person_rounded,
+                                    ? Icons.dns_rounded
+                                    : Icons.person_rounded,
                                 color: _typeColor(a.accountType),
                                 size: 20,
                               ),
@@ -98,17 +106,25 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                                 children: [
                                   Row(
                                     children: [
-                                      Text(a.name,
-                                          style: const TextStyle(
-                                              fontSize: 14.5,
-                                              fontWeight: FontWeight.w700)),
+                                      Text(
+                                        a.name,
+                                        style: const TextStyle(
+                                          fontSize: 14.5,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
                                       const SizedBox(width: 8),
-                                      PclTag(_typeLabel(a.accountType),
-                                          color: _typeColor(a.accountType)),
+                                      PclTag(
+                                        _typeLabel(a.accountType),
+                                        color: _typeColor(a.accountType),
+                                      ),
                                       if (isCurrent) ...[
                                         const SizedBox(width: 6),
-                                        PclTag('当前使用',
-                                            color: kAccent, filled: true),
+                                        PclTag(
+                                          '当前使用',
+                                          color: kAccent,
+                                          filled: true,
+                                        ),
                                       ],
                                     ],
                                   ),
@@ -118,11 +134,13 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                                         ? '${a.yggdrasilServer ?? ""} · ${a.uuid}'
                                         : a.uuid,
                                     style: TextStyle(
-                                        fontSize: 12,
-                                        color: Theme.of(context).brightness ==
-                                                Brightness.dark
-                                            ? Colors.white35
-                                            : Colors.black35),
+                                      fontSize: 12,
+                                      color:
+                                          Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.white38
+                                          : Colors.black38,
+                                    ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ],
@@ -141,8 +159,10 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                             const SizedBox(width: 8),
                             IconButton(
                               tooltip: '删除',
-                              icon: const Icon(Icons.delete_outline_rounded,
-                                  size: 18),
+                              icon: const Icon(
+                                Icons.delete_outline_rounded,
+                                size: 18,
+                              ),
                               onPressed: () => ref
                                   .read(accountsProvider.notifier)
                                   .remove(a.id),
@@ -193,7 +213,9 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
             controller: controller,
             autofocus: true,
             decoration: const InputDecoration(
-                labelText: '玩家名', hintText: '1-16 个字符'),
+              labelText: '玩家名',
+              hintText: '1-16 个字符',
+            ),
           ),
           actions: [
             TextButton(
@@ -201,7 +223,8 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
               child: const Text('取消'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              onPressed: () =>
+                  Navigator.of(context).pop(controller.text.trim()),
               child: const Text('添加'),
             ),
           ],
@@ -212,10 +235,10 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
     try {
       await ref.read(accountsProvider.notifier).addOffline(name);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$e'), backgroundColor: kDanger),
-        );
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: kDanger));
       }
     }
   }
@@ -224,7 +247,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
   Future<void> _loginMicrosoft(BuildContext context) async {
     var userCode = '';
     var verifyUri = '';
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => Dialog(
@@ -245,9 +268,10 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('微软登录',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                  const Text(
+                    '微软登录',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                  ),
                   const SizedBox(height: 12),
                   if (!failed && userCode.isEmpty) ...[
                     const Row(
@@ -256,7 +280,9 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: kAccent),
+                            strokeWidth: 2,
+                            color: kAccent,
+                          ),
                         ),
                         SizedBox(width: 10),
                         Text('正在连接微软服务器...'),
@@ -266,33 +292,38 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                     Text(
                       '请用浏览器打开以下地址并输入代码：',
                       style: TextStyle(
-                          fontSize: 13,
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? Colors.white54
-                              : Colors.black54),
+                        fontSize: 13,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.white54
+                            : Colors.black54,
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    SelectableText(verifyUri,
-                        style: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w700)),
+                    SelectableText(
+                      verifyUri,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        const Text('登录代码：',
-                            style: TextStyle(fontSize: 13)),
+                        const Text('登录代码：', style: TextStyle(fontSize: 13)),
                         SelectableText(
                           userCode,
                           style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                              color: kAccent,
-                              letterSpacing: 2),
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: kAccent,
+                            letterSpacing: 2,
+                          ),
                         ),
                         IconButton(
                           tooltip: '复制代码',
                           icon: const Icon(Icons.copy_rounded, size: 16),
-                          onPressed: () => Clipboard.setData(
-                              ClipboardData(text: userCode)),
+                          onPressed: () =>
+                              Clipboard.setData(ClipboardData(text: userCode)),
                         ),
                       ],
                     ),
@@ -300,15 +331,17 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                     Text(
                       ev?.message ?? '等待授权...',
                       style: TextStyle(
-                          fontSize: 12,
-                          color:
-                              Theme.of(context).brightness == Brightness.dark
-                                  ? Colors.white38
-                                  : Colors.black38),
+                        fontSize: 12,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.white38
+                            : Colors.black38,
+                      ),
                     ),
                   ] else ...[
-                    Text(ev?.message ?? '登录失败',
-                        style: const TextStyle(color: kDanger)),
+                    Text(
+                      ev?.message ?? '登录失败',
+                      style: const TextStyle(color: kDanger),
+                    ),
                   ],
                   const SizedBox(height: 16),
                   Row(
@@ -346,14 +379,14 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
             TextField(
               controller: serverC,
               decoration: const InputDecoration(
-                  labelText: '认证服务器',
-                  hintText: 'https://littleskin.cn 或自制服务器'),
+                labelText: '认证服务器',
+                hintText: 'https://littleskin.cn 或自制服务器',
+              ),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: userC,
-              decoration:
-                  const InputDecoration(labelText: '邮箱 / 用户名'),
+              decoration: const InputDecoration(labelText: '邮箱 / 用户名'),
             ),
             const SizedBox(height: 10),
             TextField(
@@ -376,18 +409,20 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
       ),
     );
     if (ok != true) return;
+    if (!context.mounted) return;
 
     // 登录中提示
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const AlertDialog(
         content: Row(
           children: [
             SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2)),
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
             SizedBox(width: 14),
             Text('正在登录外置认证服务器...'),
           ],
@@ -402,7 +437,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
         password: passC.text,
       );
       // 选择角色
-      if (!mounted) return;
+      if (!context.mounted) return;
       Navigator.of(context).pop(); // 关闭 loading
       final profile = session.profiles.length == 1
           ? session.profiles.first
@@ -431,12 +466,13 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
         profileName: profile.name,
       );
       await ref.read(accountsProvider.notifier).reload();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('已添加外置账户：${profile.name}')));
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('已添加外置账户：${profile.name}')));
       }
     } catch (e) {
-      if (mounted) {
+      if (context.mounted) {
         Navigator.of(context).pop(); // 关闭 loading
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('登录失败: $e'), backgroundColor: kDanger),

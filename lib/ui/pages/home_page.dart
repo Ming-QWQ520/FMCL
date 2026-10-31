@@ -1,6 +1,8 @@
 /// 主页（对齐 PCL2）：启动区 + 快捷入口 + 日志条。
 library;
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -37,7 +39,10 @@ class HomePage extends ConsumerWidget {
                   children: [
                     const Text(
                       '启动游戏',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     if (selected.isNotEmpty)
@@ -76,7 +81,9 @@ class HomePage extends ConsumerWidget {
                                   width: 14,
                                   height: 14,
                                   child: CircularProgressIndicator(
-                                      strokeWidth: 2, color: kAccent),
+                                    strokeWidth: 2,
+                                    color: kAccent,
+                                  ),
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
@@ -142,8 +149,7 @@ class HomePage extends ConsumerWidget {
                   icon: Icons.download_for_offline_outlined,
                   title: '下载游戏',
                   subtitle: '新版本 / 模组 / 整合包',
-                  onTap: () =>
-                      ref.read(pageIndexProvider.notifier).state = 1,
+                  onTap: () => ref.read(pageIndexProvider.notifier).set(1),
                 ),
               ),
             ],
@@ -158,9 +164,13 @@ class HomePage extends ConsumerWidget {
                 children: [
                   Row(
                     children: [
-                      const Text('启动器日志',
-                          style: TextStyle(
-                              fontSize: 13.5, fontWeight: FontWeight.w700)),
+                      const Text(
+                        '启动器日志',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       const Spacer(),
                       PclButton(
                         text: '查看全部',
@@ -168,7 +178,7 @@ class HomePage extends ConsumerWidget {
                         height: 26,
                         fontSize: 12,
                         onTap: () =>
-                            ref.read(pageIndexProvider.notifier).state = 3,
+                            ref.read(pageIndexProvider.notifier).set(3),
                       ),
                     ],
                   ),
@@ -176,18 +186,24 @@ class HomePage extends ConsumerWidget {
                   Expanded(
                     child: logs.isEmpty
                         ? const EmptyView(
-                            icon: Icons.article_outlined, text: '暂无日志')
+                            icon: Icons.article_outlined,
+                            text: '暂无日志',
+                          )
                         : ListView.builder(
                             itemCount: logs.length.clamp(0, 120),
                             itemBuilder: (context, i) {
-                              final start =
-                                  (logs.length - 120).clamp(0, logs.length);
+                              final start = (logs.length - 120).clamp(
+                                0,
+                                logs.length,
+                              );
                               final e = logs[start + i];
                               final isDark =
-                                  Theme.of(context).brightness == Brightness.dark;
+                                  Theme.of(context).brightness ==
+                                  Brightness.dark;
                               return Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 1),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 1,
+                                ),
                                 child: Text(
                                   '[${e.level}] [${e.module}] ${e.message}',
                                   maxLines: 1,
@@ -196,15 +212,15 @@ class HomePage extends ConsumerWidget {
                                     fontSize: 11.5,
                                     fontFamilyFallback: const [
                                       'Consolas',
-                                      'monospace'
+                                      'monospace',
                                     ],
                                     color: e.level == 'ERROR'
                                         ? Colors.red
                                         : e.level == 'WARN'
-                                            ? Colors.orange
-                                            : isDark
-                                                ? Colors.white60
-                                                : Colors.black54,
+                                        ? Colors.orange
+                                        : isDark
+                                        ? Colors.white60
+                                        : Colors.black54,
                                   ),
                                 ),
                               );
@@ -226,15 +242,15 @@ class HomePage extends ConsumerWidget {
       await ref.read(launchSessionsProvider.notifier).launch(versionId);
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$e'), backgroundColor: kDanger),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: kDanger));
       }
     }
   }
 
   void _openSelector(BuildContext context) {
-    showDialog(
+    showDialog<void>(
       context: context,
       builder: (_) => const _VersionSelectorDialog(),
     );
@@ -250,8 +266,9 @@ class HomePage extends ConsumerWidget {
 
   void _completeVersion(BuildContext context, WidgetRef ref, String versionId) {
     if (versionId.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先选择版本')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先选择版本')));
       return;
     }
     final settings = ref.read(settingsProvider);
@@ -262,7 +279,7 @@ class HomePage extends ConsumerWidget {
       bmclapiFirst: settings.downloadSourceIndex == 0,
       concurrency: settings.concurrency,
     );
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const InstallTaskDialog(),
@@ -271,11 +288,12 @@ class HomePage extends ConsumerWidget {
 
   void _openVersionSettings(BuildContext context, String versionId) {
     if (versionId.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先选择版本')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先选择版本')));
       return;
     }
-    showDialog(
+    showDialog<void>(
       context: context,
       builder: (_) => VersionSettingsDialog(versionId: versionId),
     );
@@ -312,7 +330,9 @@ class _LaunchButtonState extends State<_LaunchButton> {
           decoration: BoxDecoration(
             color: widget.enabled
                 ? (_hover ? kAccentDeep : kAccent)
-                : (isDark ? Colors.white.withAlpha(10) : Colors.black.withAlpha(6)),
+                : (isDark
+                      ? Colors.white.withAlpha(10)
+                      : Colors.black.withAlpha(6)),
             borderRadius: BorderRadius.circular(18),
             boxShadow: widget.enabled
                 ? [
@@ -361,7 +381,7 @@ class _SelectedVersionCard extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return HoverTile(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      onTap: () => showDialog(
+      onTap: () => showDialog<void>(
         context: context,
         builder: (_) => const _VersionSelectorDialog(),
       ),
@@ -376,7 +396,9 @@ class _SelectedVersionCard extends ConsumerWidget {
                 Text(
                   selected.isEmpty ? '尚未选择版本' : selected,
                   style: const TextStyle(
-                      fontSize: 14.5, fontWeight: FontWeight.w700),
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
@@ -385,15 +407,18 @@ class _SelectedVersionCard extends ConsumerWidget {
                       ? '点击选择或前往下载页安装'
                       : '${loaderLabel(v.loader)}${v.loaderVersion.isEmpty ? '' : ' ${v.loaderVersion}'} · ${formatBytes(v.sizeBytes)}',
                   style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? Colors.white38 : Colors.black38),
+                    fontSize: 12,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-          Icon(Icons.chevron_right_rounded,
-              color: isDark ? Colors.white30 : Colors.black26),
+          Icon(
+            Icons.chevron_right_rounded,
+            color: isDark ? Colors.white30 : Colors.black26,
+          ),
         ],
       ),
     );
@@ -418,9 +443,10 @@ class _VersionSelectorDialog extends ConsumerWidget {
             children: [
               Row(
                 children: [
-                  const Text('选择版本',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                  const Text(
+                    '选择版本',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                  ),
                   const Spacer(),
                   PclButton(
                     text: '安装新版本',
@@ -429,7 +455,7 @@ class _VersionSelectorDialog extends ConsumerWidget {
                     fontSize: 12.5,
                     onTap: () {
                       Navigator.of(context).pop();
-                      ref.read(pageIndexProvider.notifier).state = 1;
+                      ref.read(pageIndexProvider.notifier).set(1);
                     },
                   ),
                 ],
@@ -465,8 +491,10 @@ class _VersionSelectorDialog extends ConsumerWidget {
                                     VersionIcon(loader: v.loader),
                                     const SizedBox(width: 12),
                                     Expanded(
-                                      child: Text(v.id,
-                                          overflow: TextOverflow.ellipsis),
+                                      child: Text(
+                                        v.id,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
                                     PclTag(loaderLabel(v.loader)),
                                   ],
@@ -524,14 +552,19 @@ class _QuickCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 13.5, fontWeight: FontWeight.w700)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 Text(
                   subtitle,
                   style: TextStyle(
-                      fontSize: 11.5,
-                      color: isDark ? Colors.white35 : Colors.black35),
+                    fontSize: 11.5,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ],

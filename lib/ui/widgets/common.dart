@@ -114,9 +114,19 @@ class _PclButtonState extends State<PclButton> {
           curve: Curves.easeOut,
           height: widget.height,
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          transform: Matrix4.identity()..scale(_press ? 0.985 : 1.0),
+          transform: Matrix4.identity()
+            ..scaleByDouble(
+              _press ? 0.985 : 1.0,
+              _press ? 0.985 : 1.0,
+              _press ? 0.985 : 1.0,
+              1.0,
+            ),
           decoration: BoxDecoration(
-            color: enabled ? bg : (isDark ? Colors.white.withAlpha(10) : Colors.black.withAlpha(6)),
+            color: enabled
+                ? bg
+                : (isDark
+                      ? Colors.white.withAlpha(10)
+                      : Colors.black.withAlpha(6)),
             borderRadius: BorderRadius.circular(8),
           ),
           alignment: Alignment.center,
@@ -198,7 +208,9 @@ class _HoverTileState extends State<HoverTile> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return MouseRegion(
-      cursor: widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
+      cursor: widget.onTap != null
+          ? SystemMouseCursors.click
+          : MouseCursor.defer,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: AnimatedContainer(
@@ -229,7 +241,9 @@ class PclProgress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final track = isDark ? Colors.white.withAlpha(20) : Colors.black.withAlpha(12);
+    final track = isDark
+        ? Colors.white.withAlpha(20)
+        : Colors.black.withAlpha(12);
     if (value < 0) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(height / 2),
@@ -290,7 +304,10 @@ class Segmented extends StatelessWidget {
               onTap: () => onChanged(i),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 130),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: i == index
                       ? (isDark ? kDarkPanel : kLightPanel)
@@ -311,7 +328,9 @@ class Segmented extends StatelessWidget {
                     fontSize: 13,
                     fontWeight: i == index ? FontWeight.w700 : FontWeight.w500,
                     color: i == index
-                        ? (isDark ? const Color(0xFFE6E6E6) : const Color(0xFF1F2328))
+                        ? (isDark
+                              ? const Color(0xFFE6E6E6)
+                              : const Color(0xFF1F2328))
                         : (isDark ? Colors.white60 : Colors.black54),
                   ),
                 ),
@@ -328,7 +347,11 @@ class EmptyView extends StatelessWidget {
   final IconData icon;
   final String text;
 
-  const EmptyView({super.key, this.icon = Icons.inbox_outlined, required this.text});
+  const EmptyView({
+    super.key,
+    this.icon = Icons.inbox_outlined,
+    required this.text,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -402,7 +425,13 @@ class SettingRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 if (subtitle != null && subtitle!.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
@@ -418,8 +447,9 @@ class SettingRow extends StatelessWidget {
               ],
             ),
           ),
-          if (trailing != null) ...[trailing!, const SizedBox(width: 12)],
-          if (child != null) child!,
+          ?trailing,
+          const SizedBox(width: 12),
+          ?child,
         ],
       ),
     );
@@ -435,7 +465,11 @@ class PclSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Switch(value: value, onChanged: onChanged, activeColor: kAccent);
+    return Switch(
+      value: value,
+      onChanged: onChanged,
+      activeThumbColor: kAccent,
+    );
   }
 }
 
@@ -457,7 +491,11 @@ class VersionIcon extends StatelessWidget {
           color: kAccent.withAlpha(24),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(Icons.videogame_asset_outlined, size: size * 0.55, color: kAccent),
+        child: Icon(
+          Icons.videogame_asset_outlined,
+          size: size * 0.55,
+          color: kAccent,
+        ),
       );
     }
     return ClipRRect(
@@ -467,11 +505,15 @@ class VersionIcon extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Container(
+        errorBuilder: (_, _, _) => Container(
           width: size,
           height: size,
           color: kAccent.withAlpha(24),
-          child: Icon(Icons.videogame_asset_outlined, size: size * 0.55, color: kAccent),
+          child: Icon(
+            Icons.videogame_asset_outlined,
+            size: size * 0.55,
+            color: kAccent,
+          ),
         ),
       ),
     );

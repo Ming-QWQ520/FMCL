@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../rust_bridge/rust_bridge.dart' as rust;
 import '../../state/app_providers.dart';
-import '../theme/pcl_theme.dart';
 import '../widgets/common.dart';
 
 class VersionSettingsDialog extends ConsumerStatefulWidget {
@@ -55,17 +54,22 @@ class _VersionSettingsDialogState extends ConsumerState<VersionSettingsDialog> {
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('版本设置 · ${widget.versionId}',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w800)),
+                    Text(
+                      '版本设置 · ${widget.versionId}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       '未修改的项将跟随全局设置（当前全局内存 ${settings.minMemoryMb}-${settings.maxMemoryMb} MiB）',
                       style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? Colors.white38
-                              : Colors.black38),
+                        fontSize: 12,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.white38
+                            : Colors.black38,
+                      ),
                     ),
                     const Divider(height: 20),
                     Expanded(
@@ -73,29 +77,34 @@ class _VersionSettingsDialogState extends ConsumerState<VersionSettingsDialog> {
                         children: [
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: const Text('版本隔离',
-                                style: TextStyle(fontSize: 14)),
+                            title: const Text(
+                              '版本隔离',
+                              style: TextStyle(fontSize: 14),
+                            ),
                             subtitle: Text(
                               '开启后 saves/config/mods 等存放在该版本目录内（跟随全局: ${settings.versionIsolation ? "开" : "关"}）',
                               style: const TextStyle(fontSize: 12),
                             ),
                             value: d.isolation ?? settings.versionIsolation,
-                            onChanged: (v) => setState(() =>
-                                _data = rust.VersionSettingsData(
-                                  isolation: v,
-                                  javaPath: d.javaPath,
-                                  maxMemoryMb: d.maxMemoryMb,
-                                  minMemoryMb: d.minMemoryMb,
-                                  jvmArguments: d.jvmArguments,
-                                )),
+                            onChanged: (v) => setState(
+                              () => _data = rust.VersionSettingsData(
+                                isolation: v,
+                                javaPath: d.javaPath,
+                                maxMemoryMb: d.maxMemoryMb,
+                                minMemoryMb: d.minMemoryMb,
+                                jvmArguments: d.jvmArguments,
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 8),
                           TextField(
                             controller: TextEditingController(
-                                text: d.javaPath ?? ''),
+                              text: d.javaPath ?? '',
+                            ),
                             decoration: const InputDecoration(
                               labelText: 'Java 路径（空 = 自动）',
-                              hintText: '例如 C:\\Program Files\\Java\\jdk-17\\bin\\javaw.exe',
+                              hintText:
+                                  '例如 C:\\Program Files\\Java\\jdk-17\\bin\\javaw.exe',
                             ),
                             onChanged: (v) => _data = rust.VersionSettingsData(
                               isolation: d.isolation,
@@ -115,20 +124,21 @@ class _VersionSettingsDialogState extends ConsumerState<VersionSettingsDialog> {
                                 child: TextField(
                                   keyboardType: TextInputType.number,
                                   controller: TextEditingController(
-                                      text: (d.minMemoryMb ?? 0) > 0
-                                          ? '${d.minMemoryMb}'
-                                          : ''),
+                                    text: (d.minMemoryMb ?? 0) > 0
+                                        ? '${d.minMemoryMb}'
+                                        : '',
+                                  ),
                                   decoration: InputDecoration(
                                     hintText: '${settings.minMemoryMb}',
                                   ),
-                                  onChanged: (v) => _data =
-                                      rust.VersionSettingsData(
-                                    isolation: d.isolation,
-                                    javaPath: d.javaPath,
-                                    maxMemoryMb: d.maxMemoryMb,
-                                    minMemoryMb: int.tryParse(v) ?? 0,
-                                    jvmArguments: d.jvmArguments,
-                                  ),
+                                  onChanged: (v) =>
+                                      _data = rust.VersionSettingsData(
+                                        isolation: d.isolation,
+                                        javaPath: d.javaPath,
+                                        maxMemoryMb: d.maxMemoryMb,
+                                        minMemoryMb: int.tryParse(v) ?? 0,
+                                        jvmArguments: d.jvmArguments,
+                                      ),
                                 ),
                               ),
                             ],
@@ -143,20 +153,21 @@ class _VersionSettingsDialogState extends ConsumerState<VersionSettingsDialog> {
                                 child: TextField(
                                   keyboardType: TextInputType.number,
                                   controller: TextEditingController(
-                                      text: (d.maxMemoryMb ?? 0) > 0
-                                          ? '${d.maxMemoryMb}'
-                                          : ''),
+                                    text: (d.maxMemoryMb ?? 0) > 0
+                                        ? '${d.maxMemoryMb}'
+                                        : '',
+                                  ),
                                   decoration: InputDecoration(
                                     hintText: '${settings.maxMemoryMb}',
                                   ),
-                                  onChanged: (v) => _data =
-                                      rust.VersionSettingsData(
-                                    isolation: d.isolation,
-                                    javaPath: d.javaPath,
-                                    maxMemoryMb: int.tryParse(v) ?? 0,
-                                    minMemoryMb: d.minMemoryMb,
-                                    jvmArguments: d.jvmArguments,
-                                  ),
+                                  onChanged: (v) =>
+                                      _data = rust.VersionSettingsData(
+                                        isolation: d.isolation,
+                                        javaPath: d.javaPath,
+                                        maxMemoryMb: int.tryParse(v) ?? 0,
+                                        minMemoryMb: d.minMemoryMb,
+                                        jvmArguments: d.jvmArguments,
+                                      ),
                                 ),
                               ),
                             ],
@@ -164,11 +175,13 @@ class _VersionSettingsDialogState extends ConsumerState<VersionSettingsDialog> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: TextEditingController(
-                                text: d.jvmArguments ?? ''),
+                              text: d.jvmArguments ?? '',
+                            ),
                             maxLines: 3,
                             decoration: const InputDecoration(
                               labelText: '额外 JVM 参数（叠加在全局之后）',
-                              hintText: '-XX:+UseG1GC -Dfml.ignoreInvalidMinecraftCertificates=true',
+                              hintText:
+                                  '-XX:+UseG1GC -Dfml.ignoreInvalidMinecraftCertificates=true',
                             ),
                             onChanged: (v) => _data = rust.VersionSettingsData(
                               isolation: d.isolation,

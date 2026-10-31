@@ -22,7 +22,8 @@ fn client() -> Result<reqwest::Client> {
 // ---------------------------------------------------------------------------
 
 /// 搜索结果条目
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchHit {
     pub project_id: String,
     pub slug: String,
@@ -117,7 +118,8 @@ fn urlencoding_lite(s: &str) -> String {
 }
 
 /// 项目可下载文件版本
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ContentFile {
     pub version_id: String,
     pub name: String,
@@ -277,12 +279,13 @@ pub fn list_installed_contents(
             });
         }
     }
-    out.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
+    out.sort_by_key(|c| std::cmp::Reverse(c.modified_ms));
     Ok(out)
 }
 
 /// 已安装内容条目
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstalledContent {
     pub name: String,
     pub path: String,
@@ -295,7 +298,8 @@ pub struct InstalledContent {
 // ---------------------------------------------------------------------------
 
 /// 整合包清单（两类格式归一）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModpackManifest {
     pub name: String,
     pub version: String,
@@ -420,7 +424,8 @@ fn normalize_loader(k: &str) -> String {
 }
 
 /// 整合包安装进度事件
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModpackProgressEvent {
     /// extract | download | install | done | failed
     pub phase: String,
@@ -439,10 +444,10 @@ pub async fn install_modpack(
     use_bmclapi: bool,
     concurrency: i32,
     session_id: String,
-    sink: crate::frb_generated::StreamSink<ModpackProgressEvent>,
+    em: &crate::bridge::Emitter,
 ) -> Result<String> {
     let emit = |phase: &str, msg: &str, p: f64| {
-        let _ = sink.add(ModpackProgressEvent {
+        em.send(&ModpackProgressEvent {
             phase: phase.into(),
             message: msg.into(),
             progress: p.clamp(0.0, 1.0),
@@ -534,8 +539,8 @@ pub async fn install_modpack(
         }
 
         // ---------- 覆盖文件解压（overrides / overrides 目录） ----------
-        let override_dir = if manifest.kind == "modrinth" { "overrides" } else { "overrides" };
-        let override_prefix = format!("{override_dir}/");
+        // Modrinth 与 CurseForge 均使用 overrides/ 目录承载覆盖文件
+        let override_prefix = "overrides/".to_string();
         extract_zip_overrides(&zip_path, &override_prefix, &game_dir, &name, &emit)?;
         emit("extract", "覆盖文件就绪", 0.15);
 
@@ -544,7 +549,7 @@ pub async fn install_modpack(
             .iter()
             .map(|f| crate::api::download::DownloadItem {
                 url: f.url.clone(),
-                save_path: game_dir
+                save_path: std::path::Path::new(&game_dir)
                     .join("versions")
                     .join(&name)
                     .join(&f.path)
@@ -558,7 +563,7 @@ pub async fn install_modpack(
         let total = items.len() as i32;
         emit("download", &format!("下载整合包文件（{total} 个）..."), 0.2);
         let counter = std::sync::Arc::new(std::sync::Mutex::new((0i32, std::time::Instant::now())));
-        let sink_c = sink.clone();
+        let sink_c = em.clone();
         let counter_c = counter.clone();
         let (ok, failed) = crate::util::http::download_all(
             &items,
@@ -571,7 +576,7 @@ pub async fn install_modpack(
                 let now = std::time::Instant::now();
                 if now.duration_since(g.1).as_millis() >= 150 || g.0 >= total {
                     g.1 = now;
-                    let _ = sink_c.add(ModpackProgressEvent {
+                    sink_c.send(&ModpackProgressEvent {
                         phase: "download".into(),
                         message: format!("下载整合包文件（{}/{}）", g.0, total),
                         progress: 0.2 + 0.55 * (g.0 as f64 / total.max(1) as f64),
@@ -588,7 +593,7 @@ pub async fn install_modpack(
 
         // ---------- 安装游戏与加载器 ----------
         emit("install", "安装游戏本体与加载器...", 0.8);
-        let install_sink = sink.clone();
+        let install_sink = em.clone();
         let request = crate::api::install::InstallRequest {
             game_dir: game_dir.clone(),
             instance_name: name.clone(),
@@ -624,8 +629,8 @@ pub async fn install_modpack(
         let (tx, mut rx) =
             tokio::sync::mpsc::unbounded_channel::<crate::api::install::InstallProgressEvent>();
         let fwd = tokio::spawn(async move {
-            while let Ok(ev) = rx.recv().await {
-                let _ = install_sink.add(ModpackProgressEvent {
+            while let Some(ev) = rx.recv().await {
+                install_sink.send(&ModpackProgressEvent {
                     phase: "install".into(),
                     message: ev.message,
                     progress: 0.8 + 0.18 * ev.progress,
@@ -657,7 +662,7 @@ pub async fn install_modpack(
         }
         Err(e) => {
             crate::util::cancel::CANCEL_REGISTRY.dispose(&session_id);
-            let _ = sink.add(ModpackProgressEvent {
+            em.send(&ModpackProgressEvent {
                 phase: "failed".into(),
                 message: format!("整合包安装失败: {e}"),
                 progress: 0.0,

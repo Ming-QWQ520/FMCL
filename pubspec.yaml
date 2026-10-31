@@ -17,10 +17,9 @@ dependencies:
   window_manager: ^0.5.1
   file_picker: ^10.0.0
 
-  # ---------- Rust 后端 (flutter_rust_bridge) ----------
+# ---------- Rust 后端（手写 C-ABI JSON 桥） ----------
   rust_lib_fmcl:
     path: rust_builder
-  flutter_rust_bridge: 2.13.0
   ffi: ^2.1.3
   meta: ^1.16.0
 

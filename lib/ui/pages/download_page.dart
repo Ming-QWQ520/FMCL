@@ -89,8 +89,22 @@ class _NewGameTab extends ConsumerStatefulWidget {
 }
 
 class _NewGameTabState extends ConsumerState<_NewGameTab> {
-  static const _loaders = ['vanilla', 'forge', 'neoforge', 'fabric', 'quilt', 'optifine'];
-  static const _loaderNames = ['原版', 'Forge', 'NeoForge', 'Fabric', 'Quilt', 'OptiFine'];
+  static const _loaders = [
+    'vanilla',
+    'forge',
+    'neoforge',
+    'fabric',
+    'quilt',
+    'optifine',
+  ];
+  static const _loaderNames = [
+    '原版',
+    'Forge',
+    'NeoForge',
+    'Fabric',
+    'Quilt',
+    'OptiFine',
+  ];
 
   int _loaderIndex = 0;
   String? _selectedMc;
@@ -133,10 +147,12 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
                       final filtered = _mcFilter.isEmpty
                           ? list
                           : list
-                              .where((e) => e.id
-                                  .toLowerCase()
-                                  .contains(_mcFilter.toLowerCase()))
-                              .toList();
+                                .where(
+                                  (e) => e.id.toLowerCase().contains(
+                                    _mcFilter.toLowerCase(),
+                                  ),
+                                )
+                                .toList();
                       return ListView.builder(
                         itemCount: filtered.length,
                         itemBuilder: (context, i) {
@@ -153,7 +169,9 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
                                   width: 4,
                                   height: 30,
                                   decoration: BoxDecoration(
-                                    color: selected ? kAccent : Colors.transparent,
+                                    color: selected
+                                        ? kAccent
+                                        : Colors.transparent,
                                     borderRadius: BorderRadius.circular(2),
                                   ),
                                 ),
@@ -163,22 +181,25 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(e.id,
-                                          style: TextStyle(
-                                            fontWeight: selected
-                                                ? FontWeight.w700
-                                                : FontWeight.w500,
-                                            color: selected ? kAccent : null,
-                                          )),
+                                      Text(
+                                        e.id,
+                                        style: TextStyle(
+                                          fontWeight: selected
+                                              ? FontWeight.w700
+                                              : FontWeight.w500,
+                                          color: selected ? kAccent : null,
+                                        ),
+                                      ),
                                       Text(
                                         _typeLabel(e.versionType),
                                         style: TextStyle(
-                                            fontSize: 11,
-                                            color: Theme.of(context)
-                                                        .brightness ==
-                                                    Brightness.dark
-                                                ? Colors.white30
-                                                : Colors.black26),
+                                          fontSize: 11,
+                                          color:
+                                              Theme.of(context).brightness ==
+                                                  Brightness.dark
+                                              ? Colors.white30
+                                              : Colors.black26,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -192,8 +213,9 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
                     loading: () =>
                         const Center(child: CircularProgressIndicator()),
                     error: (e, _) => EmptyView(
-                        icon: Icons.cloud_off_rounded,
-                        text: '获取版本清单失败：$e'),
+                      icon: Icons.cloud_off_rounded,
+                      text: '获取版本清单失败：$e',
+                    ),
                   ),
                 ),
               ],
@@ -207,7 +229,9 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
             padding: const EdgeInsets.all(16),
             child: _selectedMc == null
                 ? const EmptyView(
-                    icon: Icons.touch_app_rounded, text: '先在左侧选择游戏版本')
+                    icon: Icons.touch_app_rounded,
+                    text: '先在左侧选择游戏版本',
+                  )
                 : _buildRight(context, loaderKey, bmclFirst),
           ),
         ),
@@ -215,11 +239,16 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
     );
   }
 
-  Widget _buildRight(BuildContext context, (String, String)? loaderKey, bool bmclFirst) {
+  Widget _buildRight(
+    BuildContext context,
+    (String, String)? loaderKey,
+    bool bmclFirst,
+  ) {
     final loaderVersions = loaderKey == null
         ? null
         : ref.watch(loaderVersionsProvider(loaderKey));
-    final canInstall = _selectedMc != null &&
+    final canInstall =
+        _selectedMc != null &&
         (_loaders[_loaderIndex] == 'vanilla' ||
             _loaders[_loaderIndex] == 'optifine' ||
             _selectedLoaderVer != null);
@@ -238,15 +267,18 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
                   Text(
                     '$_selectedMc ${_loaderNames[_loaderIndex]}',
                     style: const TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.w800),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   Text(
                     '安装到 ${ref.watch(gameDirProvider)}',
                     style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? Colors.white38
-                            : Colors.black38),
+                      fontSize: 12,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white38
+                          : Colors.black38,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
@@ -266,15 +298,16 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
                 selectedColor: kAccent.withAlpha(40),
                 labelStyle: TextStyle(
                   color: _loaderIndex == i ? kAccent : null,
-                  fontWeight:
-                      _loaderIndex == i ? FontWeight.w700 : FontWeight.w500,
+                  fontWeight: _loaderIndex == i
+                      ? FontWeight.w700
+                      : FontWeight.w500,
                 ),
                 side: BorderSide(
                   color: _loaderIndex == i
                       ? kAccent
                       : (Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white24
-                          : Colors.black12),
+                            ? Colors.white24
+                            : Colors.black12),
                 ),
                 onSelected: (_) => setState(() {
                   _loaderIndex = i;
@@ -289,15 +322,18 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
           loaderVersions!.when(
             data: (list) {
               if (list.isEmpty) {
-                return const Text('该版本暂无可用加载器版本',
-                    style: TextStyle(color: Colors.orange));
+                return const Text(
+                  '该版本暂无可用加载器版本',
+                  style: TextStyle(color: Colors.orange),
+                );
               }
               return DropdownButtonFormField<String>(
-                value: _selectedLoaderVer,
+                initialValue: _selectedLoaderVer,
                 decoration: InputDecoration(
                   labelText: '${_loaderNames[_loaderIndex]} 版本',
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
                 items: [
                   for (final v in list)
@@ -319,10 +355,8 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
               );
             },
             loading: () => const LinearProgressIndicator(),
-            error: (e, _) => Text(
-              '获取加载器版本失败：$e',
-              style: const TextStyle(color: Colors.red),
-            ),
+            error: (e, _) =>
+                Text('获取加载器版本失败：$e', style: const TextStyle(color: Colors.red)),
           ),
         const SizedBox(height: 14),
         // 实例名
@@ -330,7 +364,8 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
           controller: _nameController,
           decoration: InputDecoration(
             labelText: '版本名称（可留空自动命名）',
-            hintText: '${_selectedMc ?? ''}${_loaders[_loaderIndex] == 'vanilla' ? '' : '-${_loaderNames[_loaderIndex]}'}',
+            hintText:
+                '${_selectedMc ?? ''}${_loaders[_loaderIndex] == 'vanilla' ? '' : '-${_loaderNames[_loaderIndex]}'}',
           ),
         ),
         const Spacer(),
@@ -357,7 +392,7 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
     final gameDir = ref.read(gameDirProvider);
     final loader = _loaders[_loaderIndex];
     final name = _nameController.text.trim().isEmpty
-        ? '${_selectedMc}${loader == 'vanilla' ? '' : '-${_loaderNames[_loaderIndex]}'}'
+        ? '$_selectedMc${loader == 'vanilla' ? '' : '-${_loaderNames[_loaderIndex]}'}'
         : _nameController.text.trim();
     final task = ref.read(installTaskProvider.notifier);
 
@@ -384,7 +419,7 @@ class _NewGameTabState extends ConsumerState<_NewGameTab> {
           : null,
     );
     task.install(request, '安装 $_selectedMc ${_loaderNames[_loaderIndex]}');
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const InstallTaskDialog(),
@@ -457,16 +492,19 @@ class _InstalledTab extends ConsumerWidget {
             data: (list) => list.isEmpty
                 ? const EmptyView(
                     icon: Icons.videogame_asset_off_outlined,
-                    text: '尚未安装任何版本，去「新游戏」安装或导入外部版本')
+                    text: '尚未安装任何版本，去「新游戏」安装或导入外部版本',
+                  )
                 : ListView.separated(
                     itemCount: list.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 6),
+                    separatorBuilder: (_, _) => const SizedBox(height: 6),
                     itemBuilder: (context, i) {
                       final v = list[i];
                       final isSelected = v.id == selected;
                       return PclPanel(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
                         child: Row(
                           children: [
                             VersionIcon(loader: v.loader, size: 42),
@@ -481,8 +519,9 @@ class _InstalledTab extends ConsumerWidget {
                                         child: Text(
                                           v.id,
                                           style: const TextStyle(
-                                              fontSize: 14.5,
-                                              fontWeight: FontWeight.w700),
+                                            fontSize: 14.5,
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
@@ -490,13 +529,14 @@ class _InstalledTab extends ConsumerWidget {
                                       PclTag(loaderLabel(v.loader)),
                                       if (v.loaderVersion.isNotEmpty) ...[
                                         const SizedBox(width: 6),
-                                        PclTag(v.loaderVersion,
-                                            color: Colors.deepPurple),
+                                        PclTag(
+                                          v.loaderVersion,
+                                          color: Colors.deepPurple,
+                                        ),
                                       ],
                                       if (!v.hasJar) ...[
                                         const SizedBox(width: 6),
-                                        PclTag('缺 jar',
-                                            color: Colors.orange),
+                                        PclTag('缺 jar', color: Colors.orange),
                                       ],
                                     ],
                                   ),
@@ -504,11 +544,13 @@ class _InstalledTab extends ConsumerWidget {
                                   Text(
                                     '游戏版本 ${v.gameVersion} · ${formatBytes(v.sizeBytes)}',
                                     style: TextStyle(
-                                        fontSize: 12,
-                                        color: Theme.of(context).brightness ==
-                                                Brightness.dark
-                                            ? Colors.white38
-                                            : Colors.black38),
+                                      fontSize: 12,
+                                      color:
+                                          Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.white38
+                                          : Colors.black38,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -516,8 +558,11 @@ class _InstalledTab extends ConsumerWidget {
                             if (isSelected)
                               const Padding(
                                 padding: EdgeInsets.only(right: 8),
-                                child: Icon(Icons.check_circle_rounded,
-                                    color: kAccent, size: 20),
+                                child: Icon(
+                                  Icons.check_circle_rounded,
+                                  color: kAccent,
+                                  size: 20,
+                                ),
                               ),
                             PclButton(
                               text: '启动',
@@ -535,35 +580,59 @@ class _InstalledTab extends ConsumerWidget {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                          content: Text('$e'),
-                                          backgroundColor: kDanger),
+                                        content: Text('$e'),
+                                        backgroundColor: kDanger,
+                                      ),
                                     );
                                   }
                                 }
                               },
                             ),
                             const SizedBox(width: 8),
-                            _iconAction(context, Icons.tune_rounded, '版本设置',
-                                () => showDialog(
-                                      context: context,
-                                      builder: (_) => VersionSettingsDialog(
-                                          versionId: v.id),
-                                    )),
-                            _iconAction(context, Icons.build_circle_outlined,
-                                '补全文件', () => _complete(context, ref, v.id)),
-                            _iconAction(context, Icons.folder_open_rounded,
-                                '打开文件夹', () async {
-                              try {
-                                await rust.openPath(path: v.dir);
-                              } catch (_) {}
-                            }),
-                            _iconAction(context, Icons.drive_file_rename_outline,
-                                '重命名', () => _rename(context, ref, v.id)),
-                            _iconAction(context, Icons.copy_rounded, '复制',
-                                () => _copy(context, ref, v.id)),
                             _iconAction(
-                                context, Icons.delete_outline_rounded, '删除',
-                                () => _delete(context, ref, v.id)),
+                              context,
+                              Icons.tune_rounded,
+                              '版本设置',
+                              () => showDialog<void>(
+                                context: context,
+                                builder: (_) =>
+                                    VersionSettingsDialog(versionId: v.id),
+                              ),
+                            ),
+                            _iconAction(
+                              context,
+                              Icons.build_circle_outlined,
+                              '补全文件',
+                              () => _complete(context, ref, v.id),
+                            ),
+                            _iconAction(
+                              context,
+                              Icons.folder_open_rounded,
+                              '打开文件夹',
+                              () async {
+                                try {
+                                  await rust.openPath(path: v.dir);
+                                } catch (_) {}
+                              },
+                            ),
+                            _iconAction(
+                              context,
+                              Icons.drive_file_rename_outline,
+                              '重命名',
+                              () => _rename(context, ref, v.id),
+                            ),
+                            _iconAction(
+                              context,
+                              Icons.copy_rounded,
+                              '复制',
+                              () => _copy(context, ref, v.id),
+                            ),
+                            _iconAction(
+                              context,
+                              Icons.delete_outline_rounded,
+                              '删除',
+                              () => _delete(context, ref, v.id),
+                            ),
                           ],
                         ),
                       );
@@ -578,7 +647,11 @@ class _InstalledTab extends ConsumerWidget {
   }
 
   Widget _iconAction(
-      BuildContext context, IconData icon, String tip, VoidCallback onTap) {
+    BuildContext context,
+    IconData icon,
+    String tip,
+    VoidCallback onTap,
+  ) {
     return Tooltip(
       message: tip,
       child: InkWell(
@@ -586,7 +659,11 @@ class _InstalledTab extends ConsumerWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(6),
-          child: Icon(icon, size: 19, color: Theme.of(context).colorScheme.primary),
+          child: Icon(
+            icon,
+            size: 19,
+            color: Theme.of(context).colorScheme.primary,
+          ),
         ),
       ),
     );
@@ -594,13 +671,15 @@ class _InstalledTab extends ConsumerWidget {
 
   void _complete(BuildContext context, WidgetRef ref, String versionId) {
     final settings = ref.read(settingsProvider);
-    ref.read(installTaskProvider.notifier).complete(
+    ref
+        .read(installTaskProvider.notifier)
+        .complete(
           gameDir: ref.read(gameDirProvider),
           versionId: versionId,
           bmclapiFirst: settings.downloadSourceIndex == 0,
           concurrency: settings.concurrency,
         );
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const InstallTaskDialog(),
@@ -612,13 +691,15 @@ class _InstalledTab extends ConsumerWidget {
       dialogTitle: '选择版本目录（需包含 版本名.json）',
     );
     if (dir == null) return;
+    if (!context.mounted) return;
     final name = await _inputDialog(context, '导入版本名称（可留空自动）', '');
     if (name == null) return;
     try {
       await ref.read(versionOpsProvider).importExternal(dir, name);
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('已导入版本 ${name.isEmpty ? "（自动命名）" : name}')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已导入版本 ${name.isEmpty ? "（自动命名）" : name}')),
+        );
       }
     } catch (e) {
       if (context.mounted) {
@@ -630,7 +711,10 @@ class _InstalledTab extends ConsumerWidget {
   }
 
   Future<void> _rename(
-      BuildContext context, WidgetRef ref, String versionId) async {
+    BuildContext context,
+    WidgetRef ref,
+    String versionId,
+  ) async {
     final name = await _inputDialog(context, '重命名版本', versionId);
     if (name == null || name.isEmpty || name == versionId) return;
     try {
@@ -645,7 +729,10 @@ class _InstalledTab extends ConsumerWidget {
   }
 
   Future<void> _copy(
-      BuildContext context, WidgetRef ref, String versionId) async {
+    BuildContext context,
+    WidgetRef ref,
+    String versionId,
+  ) async {
     final name = await _inputDialog(context, '复制版本为新名称', '$versionId-副本');
     if (name == null || name.isEmpty) return;
     try {
@@ -660,12 +747,17 @@ class _InstalledTab extends ConsumerWidget {
   }
 
   Future<void> _delete(
-      BuildContext context, WidgetRef ref, String versionId) async {
+    BuildContext context,
+    WidgetRef ref,
+    String versionId,
+  ) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('删除版本'),
-        content: Text('确定删除版本「$versionId」吗？\n该版本目录将被完整删除（含隔离目录内的存档）。\n此操作不可恢复！'),
+        content: Text(
+          '确定删除版本「$versionId」吗？\n该版本目录将被完整删除（含隔离目录内的存档）。\n此操作不可恢复！',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -694,7 +786,10 @@ class _InstalledTab extends ConsumerWidget {
 
 /// 简单文本输入弹窗
 Future<String?> _inputDialog(
-    BuildContext context, String title, String initial) async {
+  BuildContext context,
+  String title,
+  String initial,
+) async {
   final controller = TextEditingController(text: initial);
   return showDialog<String>(
     context: context,
@@ -743,17 +838,23 @@ class _ModpackTab extends ConsumerWidget {
                       color: kAccent.withAlpha(22),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.inventory_2_outlined,
-                        color: kAccent),
+                    child: const Icon(
+                      Icons.inventory_2_outlined,
+                      color: kAccent,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('安装整合包',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w800)),
+                        Text(
+                          '安装整合包',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                         Text(
                           '支持 Modrinth (.mrpack) 与 CurseForge (zip) 整合包，自动安装游戏与加载器',
                           style: TextStyle(fontSize: 12.5),
@@ -775,9 +876,10 @@ class _ModpackTab extends ConsumerWidget {
                 '· 整合包将安装为独立版本，出现在「已安装」列表中\n'
                 '· CurseForge 整合包文件名解析依赖社区镜像，个别文件可能需要手动补齐',
                 style: TextStyle(
-                    fontSize: 12.5,
-                    height: 1.7,
-                    color: isDark ? Colors.white38 : Colors.black38),
+                  fontSize: 12.5,
+                  height: 1.7,
+                  color: isDark ? Colors.white38 : Colors.black38,
+                ),
               ),
             ],
           ),
@@ -794,8 +896,11 @@ class _ModpackTab extends ConsumerWidget {
     );
     final path = result?.files.single.path;
     if (path == null) return;
+    if (!context.mounted) return;
     final settings = ref.read(settingsProvider);
-    ref.read(installTaskProvider.notifier).installModpack(
+    ref
+        .read(installTaskProvider.notifier)
+        .installModpack(
           zipPath: path,
           gameDir: ref.read(gameDirProvider),
           instanceName: '',
@@ -803,7 +908,7 @@ class _ModpackTab extends ConsumerWidget {
           useBmclapi: settings.downloadSourceIndex == 0,
           concurrency: settings.concurrency,
         );
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const InstallTaskDialog(),
@@ -893,10 +998,11 @@ class _ContentTabState extends ConsumerState<_ContentTab> {
                   child: Text(
                     '尚未选择版本：安装前请先在主页或「已安装」选择目标版本（用于过滤兼容性）',
                     style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? Colors.white38
-                            : Colors.black38),
+                      fontSize: 12,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white38
+                          : Colors.black38,
+                    ),
                   ),
                 ),
               ],
@@ -907,23 +1013,22 @@ class _ContentTabState extends ConsumerState<_ContentTab> {
           child: _searching
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? EmptyView(icon: Icons.cloud_off_rounded, text: '搜索失败: $_error')
-                  : (_results == null || _results!.isEmpty)
-                      ? EmptyView(text: '没有搜索结果')
-                      : GridView.builder(
-                          gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                            maxCrossAxisExtent: 340,
-                            mainAxisExtent: 108,
-                            crossAxisSpacing: 10,
-                            mainAxisSpacing: 10,
-                          ),
-                          itemCount: _results!.length,
-                          itemBuilder: (context, i) {
-                            final hit = _results![i];
-                            return _ContentCard(hit: hit);
-                          },
-                        ),
+              ? EmptyView(icon: Icons.cloud_off_rounded, text: '搜索失败: $_error')
+              : (_results == null || _results!.isEmpty)
+              ? EmptyView(text: '没有搜索结果')
+              : GridView.builder(
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 340,
+                    mainAxisExtent: 108,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemCount: _results!.length,
+                  itemBuilder: (context, i) {
+                    final hit = _results![i];
+                    return _ContentCard(hit: hit);
+                  },
+                ),
         ),
       ],
     );
@@ -967,20 +1072,26 @@ class _ContentCard extends ConsumerWidget {
                         width: 40,
                         height: 40,
                         color: kAccent.withAlpha(22),
-                        child: const Icon(Icons.extension_rounded,
-                            size: 20, color: kAccent),
+                        child: const Icon(
+                          Icons.extension_rounded,
+                          size: 20,
+                          color: kAccent,
+                        ),
                       )
                     : Image.network(
                         hit.iconUrl,
                         width: 40,
                         height: 40,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
+                        errorBuilder: (_, _, _) => Container(
                           width: 40,
                           height: 40,
                           color: kAccent.withAlpha(22),
-                          child: const Icon(Icons.extension_rounded,
-                              size: 20, color: kAccent),
+                          child: const Icon(
+                            Icons.extension_rounded,
+                            size: 20,
+                            color: kAccent,
+                          ),
                         ),
                       ),
               ),
@@ -992,15 +1103,18 @@ class _ContentCard extends ConsumerWidget {
                     Text(
                       hit.title,
                       style: const TextStyle(
-                          fontSize: 13.5, fontWeight: FontWeight.w700),
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
                       '${hit.author} · ${_fmtDownloads(hit.downloads)} 下载',
                       style: TextStyle(
-                          fontSize: 11,
-                          color: isDark ? Colors.white35 : Colors.black35),
+                        fontSize: 11,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1014,9 +1128,10 @@ class _ContentCard extends ConsumerWidget {
             child: Text(
               hit.description,
               style: TextStyle(
-                  fontSize: 11.5,
-                  color: isDark ? Colors.white45 : Colors.black45,
-                  height: 1.3),
+                fontSize: 11.5,
+                color: isDark ? Colors.white54 : Colors.black45,
+                height: 1.3,
+              ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
@@ -1030,7 +1145,7 @@ class _ContentCard extends ConsumerWidget {
     try {
       final files = await rust.listProjectFiles(projectId: hit.projectId);
       if (!context.mounted) return;
-      showDialog(
+      showDialog<void>(
         context: context,
         builder: (_) => _FilePickerDialog(hit: hit, files: files),
       );
@@ -1067,25 +1182,28 @@ class _FilePickerDialog extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('选择文件 · ${hit.title}',
-                  style:
-                      const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+              Text(
+                '选择文件 · ${hit.title}',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
               const SizedBox(height: 4),
               Text(
-                selected.isEmpty
-                    ? '尚未选择目标版本，将无法安装'
-                    : '安装到版本：$selected',
+                selected.isEmpty ? '尚未选择目标版本，将无法安装' : '安装到版本：$selected',
                 style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white38
-                        : Colors.black38),
+                  fontSize: 12,
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? Colors.white38
+                      : Colors.black38,
+                ),
               ),
               const SizedBox(height: 10),
               Expanded(
                 child: ListView.separated(
                   itemCount: files.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, i) {
                     final f = files[i];
                     return HoverTile(
@@ -1095,7 +1213,7 @@ class _FilePickerDialog extends ConsumerWidget {
                           Icon(
                             f.versionType == 'release'
                                 ? Icons.check_circle_outline_rounded
-                                : Icons.beta_rounded,
+                                : Icons.auto_awesome_rounded,
                             size: 18,
                             color: f.versionType == 'release'
                                 ? Colors.green
@@ -1109,19 +1227,22 @@ class _FilePickerDialog extends ConsumerWidget {
                                 Text(
                                   '${f.name} (${f.versionNumber})',
                                   style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 13),
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 Text(
                                   '${_fmtDownloads2(f.gameVersions)} · ${formatBytes(f.sizeBytes)}',
                                   style: TextStyle(
-                                      fontSize: 11.5,
-                                      color: Theme.of(context).brightness ==
-                                              Brightness.dark
-                                          ? Colors.white35
-                                          : Colors.black35),
+                                    fontSize: 11.5,
+                                    color:
+                                        Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.white38
+                                        : Colors.black38,
+                                  ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -1143,11 +1264,15 @@ class _FilePickerDialog extends ConsumerWidget {
   }
 
   Future<void> _install(
-      BuildContext context, WidgetRef ref, rust.ContentFile f) async {
+    BuildContext context,
+    WidgetRef ref,
+    rust.ContentFile f,
+  ) async {
     final selected = ref.read(selectedVersionProvider);
     if (selected.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请先选择目标版本')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先选择目标版本')));
       return;
     }
     try {
@@ -1161,7 +1286,9 @@ class _FilePickerDialog extends ConsumerWidget {
       );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已安装：${savePath.split(Platform.pathSeparator).last}')),
+          SnackBar(
+            content: Text('已安装：${savePath.split(Platform.pathSeparator).last}'),
+          ),
         );
         Navigator.of(context).pop();
       }

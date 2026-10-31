@@ -39,7 +39,9 @@ class _FmclAppState extends ConsumerState<FmclApp> {
       debugShowCheckedModeBanner: false,
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
-      themeMode: brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
+      themeMode: brightness == Brightness.dark
+          ? ThemeMode.dark
+          : ThemeMode.light,
       home: const AppShell(),
       localizationsDelegates: const [
         DefaultMaterialLocalizations.delegate,

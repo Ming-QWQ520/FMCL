@@ -44,7 +44,8 @@ Future<void> main() async {
   await rust.initRustBridge();
   final info = await rust.initApp();
   debugPrint(
-      '[Main] FMCL ${info.appVersion} | FMCL 根: ${info.fmclRoot} | 默认游戏目录: ${info.defaultGameDir}');
+    '[Main] FMCL ${info.appVersion} | FMCL 根: ${info.fmclRoot} | 默认游戏目录: ${info.defaultGameDir}',
+  );
 
   // ---------- 启动 Provider 体系 ----------
   final container = ProviderContainer();
@@ -54,18 +55,19 @@ Future<void> main() async {
     if (!kIsWeb && Platform.isWindows) {
       final s = container.read(settingsProvider);
       if (s.windowLauncherWidth > 200 && s.windowLauncherHeight > 200) {
-        await windowManager.setSize(Size(
-          s.windowLauncherWidth.toDouble(),
-          s.windowLauncherHeight.toDouble(),
-        ));
+        await windowManager.setSize(
+          Size(
+            s.windowLauncherWidth.toDouble(),
+            s.windowLauncherHeight.toDouble(),
+          ),
+        );
       }
     }
   } catch (_) {}
 
-  runApp(UncontrolledProviderScope(
-    container: container,
-    child: const FmclApp(),
-  ));
+  runApp(
+    UncontrolledProviderScope(container: container, child: const FmclApp()),
+  );
 }
 
 /// 日志目录（兼容入口）

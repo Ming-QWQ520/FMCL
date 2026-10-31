@@ -13,6 +13,7 @@ use crate::api::install::{
     coord_to_path_pub, verify_existing,
 };
 use crate::api::versions_api::{merge_chain, resolve_chain, ChainNode, MergedVersion};
+use crate::bridge::Emitter;
 use crate::core::settings;
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::Value;
@@ -21,10 +22,10 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 type CancelFlag = Arc<std::sync::atomic::AtomicBool>;
-type LaunchSink = crate::frb_generated::StreamSink<LaunchEvent>;
 
 /// 启动用账户信息（Flutter 从账户系统取当前账户传入）
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct LaunchAccount {
     /// offline | microsoft | yggdrasil
     pub account_type: String,
@@ -36,7 +37,8 @@ pub struct LaunchAccount {
 }
 
 /// 启动请求（全部决策在 Rust，Flutter 只传展示层拿到的值）
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct LaunchOptions {
     pub game_dir: String,
     pub version_id: String,
@@ -75,7 +77,8 @@ pub struct LaunchOptions {
 }
 
 /// 启动事件
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LaunchEvent {
     /// phase | log | exit
     pub kind: String,
@@ -102,16 +105,16 @@ pub async fn terminate_launch(session_id: String) {
 // 主入口
 // ---------------------------------------------------------------------------
 
-pub async fn launch_game(options: LaunchOptions, sink: LaunchSink) -> Result<()> {
+pub async fn launch_game(options: LaunchOptions, sink: &Emitter) -> Result<()> {
     if !crate::util::cancel::CANCEL_REGISTRY.contains(&options.session_id) {
         crate::util::cancel::CANCEL_REGISTRY.create(&options.session_id);
     }
     let cancelled: CancelFlag = crate::util::cancel::CANCEL_REGISTRY.handle(&options.session_id);
 
-    let result = run_launch(&options, &sink, cancelled).await;
+    let result = run_launch(&options, sink, cancelled).await;
     match result {
         Ok(code) => {
-            let _ = sink.add(LaunchEvent {
+            sink.send(&LaunchEvent {
                 kind: "exit".into(),
                 phase: if code == 0 { "exited".into() } else { "failed".into() },
                 message: String::new(),
@@ -126,7 +129,7 @@ pub async fn launch_game(options: LaunchOptions, sink: LaunchSink) -> Result<()>
         Err(e) => {
             let msg = e.to_string();
             let is_cancel = msg.contains("已取消");
-            let _ = sink.add(LaunchEvent {
+            sink.send(&LaunchEvent {
                 kind: "exit".into(),
                 phase: if is_cancel { "cancelled".into() } else { "failed".into() },
                 message: if is_cancel { "启动已取消".into() } else { msg.clone() },
@@ -144,8 +147,8 @@ pub async fn launch_game(options: LaunchOptions, sink: LaunchSink) -> Result<()>
     }
 }
 
-fn emit(sink: &LaunchSink, phase: &str, message: &str) {
-    let _ = sink.add(LaunchEvent {
+fn emit(sink: &Emitter, phase: &str, message: &str) {
+    sink.send(&LaunchEvent {
         kind: "phase".into(),
         phase: phase.into(),
         message: message.into(),
@@ -156,8 +159,8 @@ fn emit(sink: &LaunchSink, phase: &str, message: &str) {
     });
 }
 
-fn emit_progress(sink: &LaunchSink, message: &str, progress: f64) {
-    let _ = sink.add(LaunchEvent {
+fn emit_progress(sink: &Emitter, message: &str, progress: f64) {
+    sink.send(&LaunchEvent {
         kind: "phase".into(),
         phase: "downloading".into(),
         message: message.into(),
@@ -170,7 +173,7 @@ fn emit_progress(sink: &LaunchSink, message: &str, progress: f64) {
 
 async fn run_launch(
     options: &LaunchOptions,
-    sink: &LaunchSink,
+    sink: &Emitter,
     cancelled: CancelFlag,
 ) -> Result<i32> {
     let started = std::time::Instant::now();
@@ -343,13 +346,13 @@ async fn run_launch(
         tokio::select! {
             item = log_rx.recv() => {
                 match item {
-                    Ok(event) => {
+                    Some(event) => {
                         let line = event.line;
                         if !line.trim().is_empty() {
                             if event.stream == "stderr" {
                                 crate::log_debug!("Game", "{line}");
                             }
-                            let _ = sink.add(LaunchEvent {
+                            sink.send(&LaunchEvent {
                                 kind: "log".into(),
                                 phase: "running".into(),
                                 message: String::new(),
@@ -370,7 +373,7 @@ async fn run_launch(
                             }
                         }
                     }
-                    Err(_) => break, // 通道关闭 = 进程输出结束
+                    None => break, // 通道关闭 = 进程输出结束
                 }
             }
             _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {
@@ -401,7 +404,7 @@ async fn run_launch(
     if !report.is_normal {
         save_crash_reports(&game_dir, version_id, &tail_text, exit_code);
         crate::log_error!("Launch", "游戏异常退出 code={exit_code}: {}", report.summary);
-        let _ = sink.add(LaunchEvent {
+        sink.send(&LaunchEvent {
             kind: "exit".into(),
             phase: "failed".into(),
             message: format!("游戏异常退出（代码 {exit_code}）"),
@@ -425,7 +428,7 @@ async fn complete_files(
     game_dir: &Path,
     merged: &MergedVersion,
     chain: &[ChainNode],
-    sink: &LaunchSink,
+    sink: &Emitter,
     cancelled: &CancelFlag,
 ) -> Result<()> {
     let client = crate::util::http::build_public_client()?;
@@ -501,7 +504,7 @@ async fn batch_download(
     items: Vec<crate::api::download::DownloadItem>,
     concurrency: usize,
     cancelled: &CancelFlag,
-    sink: &LaunchSink,
+    sink: &Emitter,
     label: &str,
     from: f64,
     to: f64,
@@ -525,7 +528,7 @@ async fn batch_download(
             if now.duration_since(g.1).as_millis() >= 100 || g.0 >= total {
                 g.1 = now;
                 let frac = from + (to - from) * (g.0 as f64 / total as f64);
-                let _ = sink_c.add(LaunchEvent {
+                sink_c.send(&LaunchEvent {
                     kind: "phase".into(),
                     phase: "downloading".into(),
                     message: format!("下载{label_c}（{}/{}）", g.0, total),
@@ -645,7 +648,7 @@ pub(crate) fn current_arch() -> &'static str {
 async fn pick_java(
     options: &LaunchOptions,
     required_major: i32,
-    sink: &LaunchSink,
+    sink: &Emitter,
 ) -> Result<String> {
     let settings = settings::load_settings();
 
@@ -775,7 +778,9 @@ fn build_arguments(
         client_jar = game_dir
             .join("versions")
             .join(&merged.id)
-            .join(format!("{}.jar", merged.id));
+            .join(format!("{}.jar", merged.id))
+            .to_string_lossy()
+            .into_owned();
     }
     cp.push(client_jar);
 
@@ -811,7 +816,7 @@ fn build_arguments(
             let name = log_cfg
                 .pointer("/file/path")
                 .and_then(|v| v.as_str())
-                .and_then(|p| p.split('/').last())
+                .and_then(|p| p.split('/').next_back())
                 .unwrap_or("client-1.12.xml");
             let log_path = assets_dir.join("log_configs").join(name);
             jvm.push(arg.replace("${path}", &log_path.to_string_lossy()));
