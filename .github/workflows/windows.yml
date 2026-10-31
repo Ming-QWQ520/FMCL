@@ -70,6 +70,7 @@ jobs:
 
       # 快速失败：在进入耗时 2 分钟的 flutter build 前，先完整检查 Rust 代码
       - name: Cargo check (fast fail)
+        working-directory: rust
         shell: pwsh
         run: |
           cargo check 2>&1 | Tee-Object -Variable cargoOut
