@@ -217,6 +217,7 @@ pub unsafe extern "C" fn fmcl_call_sync(
 
     crate::log_info!("Core", "同步调用 method={method}");
     let started = std::time::Instant::now();
+    let method_for_log = method.clone();
     // 内层 spawn + JoinError 兜底：即使 handler panic（任务中止）也不会
     // 跨 FFI 边界展开导致整个进程崩溃，而是回传 ok:false。
     let result = RUNTIME.block_on(async {
@@ -242,7 +243,7 @@ pub unsafe extern "C" fn fmcl_call_sync(
     crate::log_info!(
         "Core",
         "同步调用完成 method={} ok={} 耗时={:?}",
-        method,
+        method_for_log,
         ok,
         started.elapsed()
     );
