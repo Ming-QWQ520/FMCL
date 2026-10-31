@@ -181,6 +181,8 @@ pub unsafe extern "C" fn fmcl_call(method: *const c_char, payload: *const c_char
             Err(anyhow::anyhow!("内部任务异常（已捕获）: {join_err}"))
         });
         let ok = matches!(result, Ok(_));
+        // 先借用提取错误文本（供日志），再消费 result 构造响应（避免 E0382 部分移动）
+        let err_text = result.as_ref().err().map(|e| e.to_string());
         let response = match result {
             Ok(value) => {
                 let v = serde_json::to_string(&value).unwrap_or_else(|_| "null".into());
@@ -193,10 +195,10 @@ pub unsafe extern "C" fn fmcl_call(method: *const c_char, payload: *const c_char
             }
         };
         crate::log_info!("Core", "响应已回传 id={id} ok={ok}");
-        if let Err(e) = &result {
+        if let Some(err) = err_text {
             // 失败响应必须记录错误文本：ok=false 只有 id 时无法排查
             // （例：yggdrasil 登录失败原因只存在于错误字符串里）
-            crate::log_warn!("Core", "调用失败 id={id} error={e}");
+            crate::log_warn!("Core", "调用失败 id={id} error={err}");
         }
         emit_event(&response);
     });
