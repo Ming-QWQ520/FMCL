@@ -4,13 +4,12 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
 import 'core/constants/app_constants.dart';
+import 'core/dirs/app_dirs.dart';
 import 'core/logger/app_logger.dart';
 import 'providers/settings_provider.dart';
 import 'rust_bridge/rust_bridge.dart';
@@ -18,11 +17,17 @@ import 'rust_bridge/rust_bridge.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ---------- 日志系统 ----------
-  final supportDir = await getApplicationSupportDirectory();
-  final logsDir = p.join(supportDir.path, 'logs');
-  await AppLogger.I.init(logsDir);
+  // ---------- 便携目录系统（exe 所在目录\FMCL\） ----------
+  await AppDirs.init();
+  AppDirs.ensureCore();
+
+  // ---------- 日志系统（输出至 exe 所在目录\FMCL\logs\） ----------
+  await AppLogger.I.init(AppDirs.logsDir);
   AppLogger.info('Main', '${AppConstants.appFullName} ${AppConstants.appVersion} 启动');
+  AppLogger.info(
+    'Main',
+    '便携目录: root=${AppDirs.fmclRoot} exeDir=${AppDirs.exeDir.isEmpty ? "(非桌面)" : AppDirs.exeDir}',
+  );
 
   // ---------- 全局错误捕获 ----------
   final originalOnError = FlutterError.onError;
@@ -46,7 +51,8 @@ Future<void> main() async {
       size: Size(1120, 720),
       minimumSize: Size(960, 600),
       center: true,
-      backgroundColor: Colors.transparent,
+      // 不透明背景：透明背景 + 隐藏标题栏会在 Windows 顶部产生残影条
+      backgroundColor: Color(0xFFF3F4F6),
       skipTaskbar: false,
       titleBarStyle: TitleBarStyle.hidden, // 自绘标题栏
       title: AppConstants.appFullName,
@@ -72,8 +78,7 @@ Future<void> main() async {
   ));
 }
 
-/// 日志目录（供设置页"打开日志"使用）
+/// 日志目录（供设置页"打开日志"使用）：exe 所在目录\FMCL\logs
 Future<String> logsDirectory() async {
-  final supportDir = await getApplicationSupportDirectory();
-  return p.join(supportDir.path, 'logs');
+  return AppDirs.logsDir;
 }

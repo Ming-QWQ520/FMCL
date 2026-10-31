@@ -13,7 +13,7 @@ import '../../providers/settings_provider.dart';
 import '../../services/version/local_version_manager.dart';
 import '../../services/launch/launch_service.dart';
 import '../../widgets/common.dart';
-import '../shell/custom_title_bar.dart';
+import '../../widgets/loader_icons.dart';
 import '../tools/server_ping_dialog.dart';
 import 'import_version_dialog.dart';
 import 'modpack_import_dialog.dart';
@@ -60,7 +60,6 @@ class _VersionsPageState extends ConsumerState<VersionsPage> {
     return Scaffold(
       body: Column(
         children: [
-          const CustomTitleBar(),
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
             child: Row(
@@ -191,7 +190,10 @@ class _VersionTile extends ConsumerWidget {
                 color: loaderColor.withAlpha(26),
                 borderRadius: BorderRadius.circular(AppTheme.radiusM),
               ),
-              child: Icon(Icons.sports_esports_rounded, color: loaderColor),
+              child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: LoaderIcons.icon(loader, size: 26),
+                ),
             ),
             const SizedBox(width: 14),
             Expanded(

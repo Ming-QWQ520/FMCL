@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import '../../core/dirs/app_dirs.dart';
 import '../../core/error/app_exception.dart';
 import '../../core/logger/app_logger.dart';
 import '../../data/models/app_settings.dart';
@@ -14,7 +15,7 @@ import '../../rust_bridge/rust_bridge.dart' as rust;
 ///
 /// 自动安装借鉴 PCL2 2.13 的 Java 管理策略：
 /// 缺失所需版本时自动从 Adoptium 下载 JRE 并托管到
-/// `<gameDir>/runtime/java-<major>`，供所有版本共享。
+/// `<exeDir>/FMCL/java/java-<major>`（便携目录），供所有版本共享。
 class JavaService {
   JavaService(this._ref);
 
@@ -172,8 +173,7 @@ class JavaService {
         todoRef: 'TODO.md #A-02',
       );
     }
-    final gameDir = _settings.gameDirectory;
-    final runtimeRoot = p.join(gameDir, 'runtime');
+    final runtimeRoot = AppDirs.javaDir;
     final sessionId = await rust.createDownloadSession();
     try {
       final stream = rust.installJava(

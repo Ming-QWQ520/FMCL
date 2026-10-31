@@ -21,7 +21,7 @@ import '../../services/resource/resource_service.dart';
 import '../../services/version/local_version_manager.dart';
 import '../../services/version/version_repository.dart';
 import '../../widgets/common.dart';
-import '../shell/custom_title_bar.dart';
+import '../../widgets/loader_icons.dart';
 
 /// 下载页 —— 全部仿照 PCL2 的 UI 与处理方式。
 ///
@@ -92,7 +92,6 @@ class _DownloadPageState extends ConsumerState<DownloadPage> {
     return Scaffold(
       body: Column(
         children: [
-          const CustomTitleBar(),
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
             child: Row(
@@ -254,7 +253,7 @@ class _LeftNav extends StatelessWidget {
       selected: selected,
       onTap: () => onSelect(_Tab.minecraft),
       leading: Image.asset(
-        'assets/img/grass_block.png',
+        'assets/img/hmcl/grass.png',
         width: 22,
         height: 22,
         filterQuality: FilterQuality.none,
@@ -764,7 +763,7 @@ class _MinecraftInstallViewState extends ConsumerState<_MinecraftInstallView> {
           child: ListTile(
             dense: true,
             leading: Image.asset(
-              'assets/img/grass_block.png',
+              'assets/img/hmcl/grass.png',
               width: 20,
               height: 20,
               filterQuality: FilterQuality.none,
@@ -799,7 +798,7 @@ class _MinecraftInstallViewState extends ConsumerState<_MinecraftInstallView> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset(
-              'assets/img/grass_block.png',
+              'assets/img/hmcl/grass.png',
               width: 40,
               height: 40,
               filterQuality: FilterQuality.none,
@@ -842,16 +841,13 @@ class _MinecraftInstallViewState extends ConsumerState<_MinecraftInstallView> {
                         color: scheme.onSurface.withAlpha(200))),
                 const SizedBox(height: 10),
                 if (_allowFabric)
-                  _loaderCard('Fabric', Icons.auto_fix_high_rounded, 'fabric'),
-                _loaderCard(
-                    'Forge', Icons.local_fire_department_rounded, 'forge'),
+                  _loaderCard('Fabric', 'fabric'),
+                _loaderCard('Forge', 'forge'),
                 if (_allowNeoForge)
-                  _loaderCard(
-                      'NeoForge', Icons.emoji_objects_rounded, 'neoforge'),
+                  _loaderCard('NeoForge', 'neoforge'),
                 if (_allowQuilt)
-                  _loaderCard('Quilt', Icons.layers_rounded, 'quilt'),
-                _loaderCard(
-                    'OptiFine', Icons.high_quality_rounded, 'optifine'),
+                  _loaderCard('Quilt', 'quilt'),
+                _loaderCard('OptiFine', 'optifine'),
               ],
             ),
           ),
@@ -883,7 +879,7 @@ class _MinecraftInstallViewState extends ConsumerState<_MinecraftInstallView> {
     );
   }
 
-  Widget _loaderCard(String title, IconData icon, String type) {
+  Widget _loaderCard(String title, String type) {
     final scheme = Theme.of(context).colorScheme;
     final expanded = _loaderType == type;
     final hasSel = _selectedLoaderLabel.isNotEmpty && _loaderType == type;
@@ -907,9 +903,12 @@ class _MinecraftInstallViewState extends ConsumerState<_MinecraftInstallView> {
         children: [
           ListTile(
             dense: true,
-            leading: Icon(icon,
-                size: 20,
-                color: active ? scheme.primary : scheme.onSurface.withAlpha(130)),
+            leading: Image.asset(
+              LoaderIcons.assetForLoader(type),
+              width: 20,
+              height: 20,
+              filterQuality: FilterQuality.medium,
+            ),
             title: Text(titleText,
                 style: TextStyle(
                     fontSize: 13.5,

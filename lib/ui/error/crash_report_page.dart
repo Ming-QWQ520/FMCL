@@ -9,7 +9,6 @@ import '../../core/theme/app_theme.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/launch/launch_service.dart';
 import '../../widgets/common.dart';
-import '../shell/custom_title_bar.dart';
 
 /// 错误报告页（PCL2 式"启动器知道哪里错了"）。
 class CrashReportPage extends ConsumerWidget {
@@ -23,7 +22,6 @@ class CrashReportPage extends ConsumerWidget {
     return Scaffold(
       body: Column(
         children: [
-          const CustomTitleBar(),
           if (report == null)
             Expanded(
               child: Center(

@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/dirs/app_dirs.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../providers/settings_provider.dart';
@@ -15,7 +16,6 @@ import '../../rust_bridge/rust_bridge.dart' as rust;
 import '../../services/account/microsoft_auth.dart';
 import '../../services/java/java_service.dart';
 import '../../widgets/common.dart';
-import '../shell/custom_title_bar.dart';
 
 /// 设置页（分页签：启动 / 下载 / Java / 外观 / 关于）。
 class SettingsPage extends ConsumerStatefulWidget {
@@ -34,7 +34,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
     return Scaffold(
       body: Column(
         children: [
-          const CustomTitleBar(),
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
             child: Row(
@@ -972,10 +971,8 @@ class _AboutTab extends ConsumerWidget {
   }
 
   void _openLogs(BuildContext context, WidgetRef ref) {
-    // 打开应用支持目录下的 logs
-    // 简化：直接用系统命令打开游戏目录 logs
-    final gameDir = ref.read(appSettingsProvider).gameDirectory;
-    final logs = '$gameDir/logs';
+    // 打开启动器完整日志目录：exe 所在目录\FMCL\logs
+    final logs = AppDirs.logsDir;
     Directory(logs).createSync(recursive: true);
     if (Platform.isWindows) {
       Process.run('explorer', [logs]);

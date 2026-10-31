@@ -36,6 +36,29 @@ abstract class DownloadSource {
         .replaceFirst('libraries.minecraft.net', 'bmclapi2.bangbang93.com/maven')
         .replaceFirst('piston-data.mojang.com', 'bmclapi2.bangbang93.com');
   }
+
+  /// 生成 URL 的镜像备用地址（官方 ↔ BMCLAPI 互换）。
+  ///
+  /// 无论当前源是什么，都返回"另一边"的等价 URL；
+  /// 无法识别的 URL 返回 null（无备用）。
+  static String? mirrored(String url) {
+    var out = url;
+    // 官方 → 镜像
+    out = out
+        .replaceFirst('launchermeta.mojang.com', 'bmclapi2.bangbang93.com')
+        .replaceFirst('piston-meta.mojang.com', 'bmclapi2.bangbang93.com')
+        .replaceFirst('resources.download.minecraft.net', 'bmclapi2.bangbang93.com/assets')
+        .replaceFirst('libraries.minecraft.net', 'bmclapi2.bangbang93.com/maven')
+        .replaceFirst('piston-data.mojang.com', 'bmclapi2.bangbang93.com');
+    if (out != url) return out;
+    // 镜像 → 官方
+    out = url
+        .replaceFirst('bmclapi2.bangbang93.com/assets', 'resources.download.minecraft.net')
+        .replaceFirst('bmclapi2.bangbang93.com/maven', 'libraries.minecraft.net')
+        .replaceFirst('bmclapi2.bangbang93.com', 'piston-meta.mojang.com');
+    if (out != url) return out;
+    return null;
+  }
 }
 
 /// Mojang 官方源

@@ -17,7 +17,7 @@ import '../../services/install/rust_install_service.dart';
 import '../../services/launch/launch_service.dart';
 import '../../services/version/local_version_manager.dart';
 import '../../widgets/common.dart';
-import '../shell/custom_title_bar.dart';
+import '../../widgets/loader_icons.dart';
 import '../versions/import_version_dialog.dart';
 
 /// 启动页（主页）：版本选择 + 大启动按钮 + 运行状态与日志。
@@ -92,7 +92,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     return Scaffold(
       body: Column(
         children: [
-          const CustomTitleBar(),
           Expanded(
             child: _loadingVersions
                 ? const Center(child: CircularProgressIndicator())
@@ -135,10 +134,21 @@ class _HomePageState extends ConsumerState<HomePage> {
                                   borderRadius:
                                       BorderRadius.circular(AppTheme.radiusM),
                                 ),
-                                child: Icon(
-                                  Icons.sports_esports_rounded,
-                                  color:
-                                      Theme.of(context).colorScheme.primary,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(7),
+                                  child: Image.asset(
+                                    _selectedVersion == null
+                                        ? 'assets/img/hmcl/grass.png'
+                                        : LoaderIcons.assetForVersionId(
+                                            _selectedVersion!),
+                                    fit: BoxFit.contain,
+                                    filterQuality: FilterQuality.medium,
+                                    errorBuilder: (_, _, _) => Icon(
+                                      Icons.sports_esports_rounded,
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
+                                    ),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 14),
@@ -249,19 +259,19 @@ class _QuickActions extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final items = [
       (
-        Icons.download_rounded,
+        'assets/img/hmcl/craft_table.png', // HMCL 工作台图
         '下载游戏',
         '原版 / 加载器 / 整合包',
         () => context.go(AppRoutes.download),
       ),
       (
-        Icons.folder_open_rounded,
+        'assets/img/hmcl/furnace.png', // HMCL 熔炉图
         '打开游戏目录',
         null, // 副标题动态填 .minecraft 路径
         () => _openGameDir(context, ref),
       ),
       (
-        Icons.file_download_rounded,
+        'assets/img/hmcl/chest.png', // HMCL 箱子图
         '导入版本',
         '从文件夹 / zip 导入',
         () async {
@@ -270,7 +280,7 @@ class _QuickActions extends ConsumerWidget {
         },
       ),
       (
-        Icons.terminal_rounded,
+        'assets/img/hmcl/command.png', // HMCL 命令方块图
         '日志中心',
         '游戏日志 / 崩溃报告',
         () => context.push(AppRoutes.logs),
@@ -282,7 +292,7 @@ class _QuickActions extends ConsumerWidget {
         for (final it in items) ...[
           Expanded(
             child: _QuickCard(
-              icon: it.$1,
+              iconAsset: it.$1,
               title: it.$2,
               subtitle: it.$3 ?? _gameDirLabel(ref),
               onTap: it.$4,
@@ -320,13 +330,13 @@ class _QuickActions extends ConsumerWidget {
 }
 
 class _QuickCard extends StatelessWidget {
-  final IconData icon;
+  final String iconAsset;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
 
   const _QuickCard({
-    required this.icon,
+    required this.iconAsset,
     required this.title,
     required this.subtitle,
     required this.onTap,
@@ -347,8 +357,16 @@ class _QuickCard extends StatelessWidget {
                   Theme.of(context).colorScheme.primary.withAlpha(24),
               borderRadius: BorderRadius.circular(AppTheme.radiusS),
             ),
-            child: Icon(icon,
-                size: 20, color: Theme.of(context).colorScheme.primary),
+            child: Padding(
+              padding: const EdgeInsets.all(5),
+              child: Image.asset(
+                iconAsset,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.medium,
+                errorBuilder: (_, _, _) =>
+                    const Icon(Icons.videogame_asset_rounded, size: 18),
+              ),
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -439,6 +457,8 @@ class _VersionDropdownItem extends StatelessWidget {
     };
     return Row(
       children: [
+        LoaderIcons.icon(loader, size: 22),
+        const SizedBox(width: 10),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(

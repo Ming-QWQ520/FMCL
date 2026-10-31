@@ -8,7 +8,6 @@ import '../../services/mod/modrinth_service.dart';
 import '../../services/resource/resource_service.dart';
 import '../../services/version/local_version_manager.dart';
 import '../../widgets/common.dart';
-import '../shell/custom_title_bar.dart';
 
 /// 资源中心（借鉴 HMCL「资源下载」：模组 / 光影 / 资源包 / 地图）。
 ///
@@ -150,7 +149,6 @@ class _ModsPageState extends ConsumerState<ModsPage>
     return Scaffold(
       body: Column(
         children: [
-          const CustomTitleBar(),
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
             child: Column(

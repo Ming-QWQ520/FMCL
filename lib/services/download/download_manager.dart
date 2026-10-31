@@ -9,6 +9,7 @@ import '../../providers/settings_provider.dart';
 import '../../core/error/app_exception.dart';
 import '../../core/logger/app_logger.dart';
 import '../../data/models/app_settings.dart';
+import '../../data/sources/download_source.dart';
 import '../../rust_bridge/rust_bridge.dart' as rust;
 
 /// 下载阶段
@@ -25,6 +26,9 @@ class DownloadState {
   final int speedBps;
   final String? lastError;
 
+  /// 下载失败的文件完整路径列表（用于错误提示与诊断）
+  final List<String> failedPaths;
+
   const DownloadState({
     this.phase = DownloadPhase.idle,
     this.totalFiles = 0,
@@ -34,6 +38,7 @@ class DownloadState {
     this.totalBytes = 0,
     this.speedBps = 0,
     this.lastError,
+    this.failedPaths = const [],
   });
 
   double get progress =>
@@ -51,6 +56,7 @@ class DownloadState {
     int? totalBytes,
     int? speedBps,
     String? lastError,
+    List<String>? failedPaths,
   }) {
     return DownloadState(
       phase: phase ?? this.phase,
@@ -61,6 +67,7 @@ class DownloadState {
       totalBytes: totalBytes ?? this.totalBytes,
       speedBps: speedBps ?? this.speedBps,
       lastError: lastError ?? this.lastError,
+      failedPaths: failedPaths ?? this.failedPaths,
     );
   }
 }
@@ -82,6 +89,21 @@ class DownloadTask {
     this.size,
     this.altUrls = const [],
   });
+
+  /// 自动补充镜像备用地址（官方 ↔ BMCLAPI 互换），
+  /// 保证任一单源故障时仍可完成补全（PCL2 式双源容灾）。
+  DownloadTask withMirrorFallback() {
+    if (altUrls.isNotEmpty) return this;
+    final mirror = DownloadSource.mirrored(url);
+    if (mirror == null) return this;
+    return DownloadTask(
+      url: url,
+      savePath: savePath,
+      sha1: sha1,
+      size: size,
+      altUrls: [mirror],
+    );
+  }
 }
 
 /// 下载管理器。
@@ -105,6 +127,8 @@ class DownloadManager {
     if (tasks.isEmpty) return;
     await cancel();
 
+    // 全量任务表（含 URL），用于失败时输出完整诊断日志
+    _taskUrls = {for (final t in tasks) t.savePath: t.url};
     final notifier = _ref.read(downloadStateProvider.notifier);
     notifier.set(DownloadState(
       phase: DownloadPhase.preparing,
@@ -112,12 +136,18 @@ class DownloadManager {
       totalBytes: tasks.fold(0, (s, t) => s + (t.size ?? 0)),
     ));
 
+    // 每个任务自动带上镜像备用地址
+    final withAlt = tasks.map((t) => t.withMirrorFallback()).toList();
     if (rust.rustBridgeAvailable) {
-      await _downloadWithRust(tasks, onProgress);
+      await _downloadWithRust(withAlt, onProgress);
     } else {
-      await _downloadWithDart(tasks, onProgress);
+      await _downloadWithDart(withAlt, onProgress);
     }
+    _taskUrls = null;
   }
+
+  /// savePath → 主 URL 映射（仅批量下载期间有效）
+  Map<String, String>? _taskUrls;
 
   Future<void> _downloadWithRust(
     List<DownloadTask> tasks,
@@ -160,8 +190,10 @@ class DownloadManager {
             ));
             onProgress?.call(_ref.read(downloadStateProvider));
           case 'file_failed':
-            AppLogger.warn(
-                'Download', '文件失败 ${event.currentFile}: ${event.errorMessage}');
+            final failedPath = event.currentFile ?? '';
+            final failedUrl = _taskUrls?[failedPath] ?? '(未知)';
+            AppLogger.warn('Download',
+                '文件下载失败: ${event.errorMessage}\n  URL: $failedUrl\n  保存至: $failedPath');
             notifier.patchState((s) => s.copyWith(
               phase: DownloadPhase.downloading,
               finishedFiles: event.finishedFiles,
@@ -170,6 +202,7 @@ class DownloadManager {
               totalBytes: event.totalBytes,
               speedBps: event.speedBps,
               lastError: event.errorMessage,
+              failedPaths: [...s.failedPaths, if (failedPath.isNotEmpty) failedPath],
             ));
             onProgress?.call(_ref.read(downloadStateProvider));
           case 'cancelled':
@@ -178,12 +211,18 @@ class DownloadManager {
           case 'done':
             final st = _ref.read(downloadStateProvider);
             if (st.failedFiles > 0) {
+              final sample = st.failedPaths.take(3).join(', ');
               notifier.patchState((s) => s.copyWith(
                 phase: DownloadPhase.failed,
-                lastError: '${st.failedFiles} 个文件下载失败',
+                lastError:
+                    '${st.failedFiles} 个文件下载失败${sample.isEmpty ? '' : '（如: $sample）'}',
               ));
+              AppLogger.error('Download',
+                  '批量下载完成但有 ${st.failedFiles} 个失败; 失败列表: ${st.failedPaths.join(', ')}');
             } else {
               notifier.patchState((s) => s.copyWith(phase: DownloadPhase.done));
+              AppLogger.info('Download',
+                  '批量下载完成: ${st.finishedFiles} 个文件, ${(st.downloadedBytes / 1048576).toStringAsFixed(1)} MB');
             }
             if (!completer.isCompleted) completer.complete();
         }
@@ -249,7 +288,7 @@ class DownloadManager {
       } catch (e) {
         failed++;
         errors.add('${task.url}: $e');
-        AppLogger.warn('Download', '降级下载失败: $e');
+        AppLogger.warn('Download', '降级下载失败: ${task.url} → ${task.savePath}: $e');
       }
     }
 

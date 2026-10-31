@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../core/constants/app_constants.dart';
+import '../../core/dirs/app_dirs.dart';
 import '../../core/error/app_exception.dart';
 import '../../core/logger/app_logger.dart';
 import '../../data/models/game_account.dart';
@@ -195,7 +196,7 @@ class LaunchService {
       AppLogger.info('Launch', '版本链: ${chain.map((c) => c.id).join(' ← ')}');
 
       // ---------- 4. 补全文件 ----------
-      final missing = await _collectMissingFiles(merged, gameDir);
+      final missing = await _collectMissingFiles(merged, gameDir, chain);
       if (missing.isNotEmpty) {
         _update(
           sessionId,
@@ -306,6 +307,14 @@ class LaunchService {
         logFile.parent.createSync(recursive: true);
       }
       final logSink = logFile.openWrite();
+      // 镜像到 exe 所在目录\FMCL\logs\game\（需求：完整日志输出至 FMCL 目录）
+      final mirrorFile = File(p.join(
+        AppDirs.gameLogsDir,
+        'game-$versionId-${DateTime.now().millisecondsSinceEpoch}.log',
+      ));
+      final mirrorSink = mirrorFile.openWrite();
+      mirrorSink.writeln('==== FMCL ${AppConstants.appVersion} 游戏输出镜像 ===='
+          '\n版本: $versionId\n开始: ${DateTime.now()}\n');
 
       // 额外环境变量（每行 KEY=VALUE）与包装命令（借鉴 HMCL wrapper）
       final envMap = _parseLaunchEnvironment(settings.launchEnvironment);
@@ -323,6 +332,11 @@ class LaunchService {
         2 => 'low',
         _ => 'normal',
       };
+
+      // ---------- 完整启动命令日志（PCL2 式：完整命令行可复现问题） ----------
+      AppLogger.info('Launch',
+          '启动进程: $program\n工作目录: ${effective.workDir}\n参数: ${spawnArgs.join(' ')}'
+          '${envMap.isEmpty ? '' : '\n环境变量: $envMap'}\n优先级: $priorityStr');
 
       final config = rust.ProcessSpawnConfig(
         program: program,
@@ -346,6 +360,7 @@ class LaunchService {
       // 监听日志
       final sub = stream.listen((event) {
         logSink.writeln(event.line);
+        mirrorSink.writeln(event.line);
         _appendLog(sessionId, event.line);
         if (event.stream == 'stderr') {
           AppLogger.debug('Game', event.line);
@@ -353,7 +368,7 @@ class LaunchService {
       });
 
       // 等待退出（不阻塞 launch 方法返回）
-      unawaited(_waitExit(sessionId, handle, sub, logSink, versionId));
+      unawaited(_waitExit(sessionId, handle, sub, logSink, mirrorSink, versionId));
 
       // 启动器行为
       _applyLauncherBehavior();
@@ -595,13 +610,26 @@ class LaunchService {
   Future<List<DownloadTask>> _collectMissingFiles(
     GameVersionJson merged,
     String gameDir,
+    List<GameVersionJson> chain,
   ) async {
     final tasks = <DownloadTask>[];
     final librariesDir = p.join(gameDir, 'libraries');
     final source = _primarySource();
 
-    // 1. 客户端 jar（原版层）：由后续统一检查（继承链原版 jar 在库下载前已确保）
-
+    // 1. 客户端 jar（继承链原版根）：缺失时补下载（导入版本/手删场景）
+    final clientRef = merged.downloads?.client;
+    if (clientRef != null && clientRef.url.isNotEmpty) {
+      final vanillaId = chain.first.id;
+      final jarPath = p.join(gameDir, 'versions', vanillaId, '$vanillaId.jar');
+      tasks.add(
+        DownloadTask(
+          url: source.mapUrl(clientRef.url),
+          savePath: jarPath,
+          sha1: settingsOf(_ref).verifyFiles ? clientRef.sha1 : null,
+          size: clientRef.size,
+        ),
+      );
+    }
     // 2. 库文件
     for (final lib in merged.libraries) {
       final osName = Platform.isWindows
@@ -729,10 +757,13 @@ class LaunchService {
       final f = File(t.savePath);
       if (!f.existsSync()) {
         filtered.add(t);
+        AppLogger.debug('Launch', '待补全(缺失): ${t.savePath}');
         continue;
       }
       if (t.size != null && t.size! > 0 && f.lengthSync() != t.size) {
         filtered.add(t);
+        AppLogger.debug('Launch',
+            '待补全(大小不符): ${t.savePath} 期望=${t.size} 实际=${f.lengthSync()}');
         continue;
       }
       if (settingsOf(_ref).verifyFiles &&
@@ -742,6 +773,7 @@ class LaunchService {
           final sha = await rust.fileSha1(path: t.savePath);
           if (sha != t.sha1) {
             filtered.add(t);
+            AppLogger.debug('Launch', '待补全(SHA1 不符): ${t.savePath}');
           }
         } catch (_) {
           filtered.add(t);
@@ -782,7 +814,11 @@ class LaunchService {
         );
     final st = _ref.read(downloadStateProvider);
     if (st.phase == DownloadPhase.failed) {
-      throw NetworkException('游戏文件下载失败: ${st.lastError ?? '未知'}');
+      final detail = st.failedPaths.isEmpty
+          ? (st.lastError ?? '未知')
+          : '${st.failedPaths.length} 个文件（详见启动器日志）: '
+              '${st.failedPaths.take(3).map((f) => p.basename(f)).join(', ')}';
+      throw NetworkException('游戏文件下载失败: $detail');
     }
   }
 
@@ -837,22 +873,53 @@ class LaunchService {
 
   // ---------------- authlib-injector ----------------
 
+  /// authlib-injector 准备（需求：jar 固定存放在 exe 所在目录\FMCL\lib\authlib-injector）。
+  /// 有本地版本文件时仅在远端更新时才重新下载。
   Future<String> _prepareAuthlibInjector(
     int sessionId,
     GameAccount account,
   ) async {
-    final gameDir = _ref.read(appSettingsProvider).gameDirectory;
-    final jarPath = p.join(gameDir, 'fmcl-authlib-injector.jar');
+    final jarPath = AppDirs.authlibInjectorJar;
+    final versionFile = File(p.join(AppDirs.authlibInjectorDir, 'version.txt'));
+    final localVersion = versionFile.existsSync() ? versionFile.readAsStringSync().trim() : '';
 
-    if (!File(jarPath).existsSync()) {
+    if (!File(jarPath).existsSync() || localVersion.isEmpty) {
       _update(sessionId, (s) => s.copyWith(message: '下载 authlib-injector...'));
+      AppLogger.info('Launch', '下载 authlib-injector → $jarPath');
       final result = await YggdrasilAuthService.fetchAuthlibInjector();
+      Directory(AppDirs.authlibInjectorDir).createSync(recursive: true);
       await File(jarPath).writeAsBytes(result.bytes, flush: true);
-      AppLogger.info('Launch', 'authlib-injector ${result.version} 已就绪');
+      await versionFile.writeAsString(result.version, flush: true);
+      AppLogger.info('Launch', 'authlib-injector ${result.version} 已就绪 (${result.bytes.length} 字节)');
+    } else {
+      // 已有本地版本：后台检查更新（不阻塞启动）
+      AppLogger.info('Launch', 'authlib-injector $localVersion 已存在: $jarPath');
+      unawaited(_checkAuthlibUpdate(jarPath, versionFile, localVersion));
     }
 
     final serverUrl = account.yggdrasilServer ?? '';
+    AppLogger.info('Launch', 'authlib-injector 注入: $serverUrl');
     return '-javaagent:$jarPath=$serverUrl';
+  }
+
+  /// 后台检查 authlib-injector 新版本并预下载（下次启动生效）。
+  Future<void> _checkAuthlibUpdate(
+    String jarPath,
+    File versionFile,
+    String localVersion,
+  ) async {
+    try {
+      final result = await YggdrasilAuthService.fetchAuthlibInjector();
+      if (result.version != localVersion) {
+        AppLogger.info('Launch',
+            'authlib-injector 有新版本 $localVersion → ${result.version}，自动更新');
+        Directory(AppDirs.authlibInjectorDir).createSync(recursive: true);
+        await File(jarPath).writeAsBytes(result.bytes, flush: true);
+        await versionFile.writeAsString(result.version, flush: true);
+      }
+    } catch (e) {
+      AppLogger.warn('Launch', 'authlib-injector 更新检查失败（不影响本次启动）: $e');
+    }
   }
 
   // ---------------- 参数构建 ----------------
@@ -948,6 +1015,7 @@ class LaunchService {
     int handle,
     StreamSubscription<rust.ProcessOutputEvent> sub,
     IOSink logSink,
+    IOSink mirrorSink,
     String versionId,
   ) async {
     int? exitCode;
@@ -961,6 +1029,8 @@ class LaunchService {
     await sub.cancel();
     await logSink.flush();
     await logSink.close();
+    await mirrorSink.flush();
+    await mirrorSink.close();
 
     final logs = _sessions[sessionId]?.recentLogs ?? const <String>[];
     final report = CrashAnalyzer.analyze(
@@ -979,17 +1049,23 @@ class LaunchService {
     );
 
     if (!report.isNormalExit) {
-      // 保存崩溃报告
+      // 保存崩溃报告（游戏目录 + FMCL 目录双份）
       final gameDir = _ref.read(appSettingsProvider).gameDirectory;
+      final stamp = DateTime.now().millisecondsSinceEpoch;
       final dir = Directory(p.join(gameDir, 'crash-reports', 'fmcl'));
       if (!dir.existsSync()) dir.createSync(recursive: true);
-      final f = File(
-        p.join(
-          dir.path,
-          'fmcl-game-${DateTime.now().millisecondsSinceEpoch}.log',
-        ),
-      );
-      await f.writeAsString(logs.join('\n'));
+      await File(
+        p.join(dir.path, 'fmcl-game-$stamp.log'),
+      ).writeAsString(logs.join('\n'));
+      try {
+        await File(
+          p.join(AppDirs.crashReportsDir, 'fmcl-game-$versionId-$stamp.log'),
+        ).writeAsString(logs.join('\n'), flush: true);
+      } catch (e) {
+        AppLogger.warn('Launch', '崩溃报告写入 FMCL 目录失败: $e');
+      }
+      AppLogger.error('Launch',
+          '游戏崩溃报告已保存: ${dir.path}（另存于 ${AppDirs.crashReportsDir}）');
     }
     AppLogger.info('Launch', '游戏退出: code=$exitCode kind=${report.kind}');
   }

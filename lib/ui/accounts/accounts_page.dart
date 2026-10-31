@@ -8,7 +8,6 @@ import '../../providers/account_provider.dart';
 import '../../services/account/microsoft_auth.dart';
 import '../../services/account/yggdrasil_auth.dart';
 import '../../widgets/common.dart';
-import '../shell/custom_title_bar.dart';
 
 /// 账户页：离线 / 微软 / Yggdrasil 三类登录。
 class AccountsPage extends ConsumerStatefulWidget {
@@ -27,7 +26,6 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
     return Scaffold(
       body: Column(
         children: [
-          const CustomTitleBar(),
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
             child: Row(

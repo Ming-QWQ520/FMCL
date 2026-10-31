@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/dirs/app_dirs.dart';
 import '../../core/logger/app_logger.dart';
 import '../../core/theme/app_theme.dart';
 import '../../providers/settings_provider.dart';
 import '../../widgets/common.dart';
-import '../shell/custom_title_bar.dart';
 
 /// 日志查看器（TODO.md #D-12）。
 ///
@@ -48,7 +48,6 @@ class _LogsPageState extends ConsumerState<LogsPage> {
     return Scaffold(
       body: Column(
         children: [
-          const CustomTitleBar(),
           if (_detail != null)
             Expanded(child: _buildDetail(context, _detail!))
           else
@@ -219,14 +218,17 @@ class _LogsPageState extends ConsumerState<LogsPage> {
 
   /// 扫描游戏日志与崩溃报告目录，按修改时间倒序。
   List<_LogFile> _scanLogs(String gameDir, String query, bool searchContent) {
-    if (gameDir.isEmpty) return const [];
-    final root = Directory(gameDir);
-    if (!root.existsSync()) return const [];
-
     final dirs = <(String, Directory)>[
-      ('游戏日志', Directory('${root.path}/logs/fmcl')),
-      ('崩溃报告', Directory('${root.path}/crash-reports/fmcl')),
-      ('崩溃报告（游戏）', Directory('${root.path}/crash-reports')),
+      // 启动器完整日志（exe 所在目录\FMCL\logs）
+      ('启动器日志（FMCL）', Directory(AppDirs.logsDir)),
+      ('游戏日志镜像（FMCL）', Directory(AppDirs.gameLogsDir)),
+      ('启动器崩溃报告', Directory(AppDirs.crashReportsDir)),
+      // 游戏目录日志
+      if (gameDir.isNotEmpty) ...[
+        ('游戏日志', Directory('$gameDir/logs/fmcl')),
+        ('崩溃报告', Directory('$gameDir/crash-reports/fmcl')),
+        ('崩溃报告（游戏）', Directory('$gameDir/crash-reports')),
+      ],
     ];
 
     final out = <_LogFile>[];
