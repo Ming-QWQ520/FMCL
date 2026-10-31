@@ -875,7 +875,7 @@ fn build_arguments(
         ("${quickPlaySingleplayer}".into(), String::new()),
         ("${quickPlayMultiplayer}".into(), quickplay_mp),
         ("${quickPlayRealms}".into(), String::new()),
-    ]);
+    ];
 
     let mut game: Vec<String> = Vec::new();
     if let Some(mc_args) = merged.minecraft_arguments.as_deref() {

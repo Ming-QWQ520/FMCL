@@ -468,11 +468,16 @@ async fn run_completion(
         .unwrap_or_default();
     run_batch(&emit, cancelled, &asset_items, 0.35, 0.85, concurrency, "资源文件").await?;
 
-    // 4. 日志配置
-    if let Some(log_cfg) = merged.raw.pointer("/logging/client/file") {
-        let url = log_cfg["url"].as_str().unwrap_or_default();
+    // 4. 日志配置（log4j）
+    if let Some(log_file) = merged
+        .logging_client
+        .as_ref()
+        .and_then(|c| c.pointer("/file"))
+        .filter(|f| !f.is_null())
+    {
+        let url = log_file["url"].as_str().unwrap_or_default();
         if !url.is_empty() {
-            let name = log_cfg["path"]
+            let name = log_file["path"]
                 .as_str()
                 .and_then(|p| p.split('/').last())
                 .unwrap_or("client-1.12.xml");
@@ -482,8 +487,8 @@ async fn run_completion(
                 download_with_fallback(
                     &urls,
                     &save,
-                    log_cfg["sha1"].as_str(),
-                    log_cfg["size"].as_i64(),
+                    log_file["sha1"].as_str(),
+                    log_file["size"].as_i64(),
                 )
                 .await
                 .ok();

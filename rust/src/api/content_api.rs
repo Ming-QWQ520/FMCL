@@ -536,7 +536,7 @@ pub async fn install_modpack(
         // ---------- 覆盖文件解压（overrides / overrides 目录） ----------
         let override_dir = if manifest.kind == "modrinth" { "overrides" } else { "overrides" };
         let override_prefix = format!("{override_dir}/");
-        extract_zip_overrides(&zip_path, override_prefix, &game_dir, &name, &emit)?;
+        extract_zip_overrides(&zip_path, &override_prefix, &game_dir, &name, &emit)?;
         emit("extract", "覆盖文件就绪", 0.15);
 
         // ---------- 下载文件 ----------
@@ -621,8 +621,8 @@ pub async fn install_modpack(
             session_id: format!("{session_id}-modpack-install"),
         };
         // 复用合并安装管线（InstallProgressEvent → ModpackProgressEvent 桥接）
-        let bridge = tokio::sync::mpsc::unbounded_channel::<crate::api::install::InstallProgressEvent>();
-        let (tx, mut rx) = bridge;
+        let (tx, mut rx) =
+            tokio::sync::mpsc::unbounded_channel::<crate::api::install::InstallProgressEvent>();
         let fwd = tokio::spawn(async move {
             while let Ok(ev) = rx.recv().await {
                 let _ = install_sink.add(ModpackProgressEvent {
@@ -632,14 +632,15 @@ pub async fn install_modpack(
                 });
             }
         });
-        // 直接调用内部管线（构造一次性 sink 不可能，改走 install_combined 需要真 sink）。
-        // 因此这里使用内部核心函数 install_combined_core（见 install.rs）。
-        let install_result =
-            crate::api::install::install_combined_core(request, move |ev: crate::api::install::InstallProgressEvent| {
+        // 使用内部核心函数 install_combined_core（进度走回调；
+        // 调用返回时回调与其持有的 tx 一并释放，fwd 随之结束）
+        let install_result = crate::api::install::install_combined_core(
+            request,
+            move |ev: crate::api::install::InstallProgressEvent| {
                 let _ = tx.send(ev);
-            })
-            .await;
-        drop(tx);
+            },
+        )
+        .await;
         let _ = fwd.await;
         install_result?;
 
