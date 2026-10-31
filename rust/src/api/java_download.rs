@@ -142,18 +142,19 @@ pub async fn adoptium_latest_jre(major: i32) -> Result<AdoptiumAsset> {
     })
 }
 
-/// 安装 Java 运行时到 `runtime_root` 目录。
+/// 安装 Java 运行时到 `runtime_root` 目录（FRB 接口，进度走事件流）。
 ///
-/// 返回 java 可执行文件路径。进度经事件流回传。
-/// 依赖 Dart 侧先建立下载会话（复用取消注册表）。
+/// 返回 java 可执行文件路径。依赖 Dart 侧先建立下载会话（复用取消注册表）。
 pub async fn install_java(
     major: i32,
     runtime_root: String,
     session_id: String,
     sink: crate::frb_generated::StreamSink<JavaInstallProgress>,
 ) {
-    let result = install_java_inner(major, &runtime_root, &session_id, &sink).await;
-    match result {
+    let mut notify = |p: JavaInstallProgress| {
+        let _ = sink.add(p);
+    };
+    match install_java_core(major, &runtime_root, &session_id, &mut notify).await {
         Ok(_) => {
             let _ = sink.add(JavaInstallProgress {
                 phase: "done".into(),
@@ -171,16 +172,28 @@ pub async fn install_java(
     }
 }
 
-async fn install_java_inner(
+/// 无事件流版本（启动管线内部自动安装 Java 用），返回 java 可执行文件路径。
+pub async fn install_java_quiet(
     major: i32,
     runtime_root: &str,
     session_id: &str,
-    sink: &crate::frb_generated::StreamSink<JavaInstallProgress>,
-) -> Result<()> {
+) -> Result<PathBuf> {
+    let mut notify = |p: JavaInstallProgress| {
+        crate::log_info!("JavaInstall", "[{}] {}", p.phase, p.message);
+    };
+    install_java_core(major, runtime_root, session_id, &mut notify).await
+}
+
+async fn install_java_core(
+    major: i32,
+    runtime_root: &str,
+    session_id: &str,
+    notify: &mut dyn FnMut(JavaInstallProgress),
+) -> Result<PathBuf> {
     let cancelled = CANCEL_REGISTRY.handle(session_id);
 
     // 1. 查询资产
-    let _ = sink.add(JavaInstallProgress {
+    notify(JavaInstallProgress {
         phase: "query".into(),
         message: format!("查询 Adoptium Java {major} 资产..."),
         progress: None,
@@ -193,7 +206,7 @@ async fn install_java_inner(
     let tmp_path = root.join(format!("{}.download", asset.file_name));
     let final_path = root.join(&asset.file_name);
 
-    let _ = sink.add(JavaInstallProgress {
+    notify(JavaInstallProgress {
         phase: "download".into(),
         message: format!("下载 {}（{:.1} MB）...", asset.file_name, asset.size as f64 / 1e6),
         progress: Some(0.0),
@@ -229,7 +242,7 @@ async fn install_java_inner(
                 // 150ms 节流上报
                 if last_emit.elapsed().as_millis() >= 150 {
                     last_emit = tokio::time::Instant::now();
-                    let _ = sink.add(JavaInstallProgress {
+                    notify(JavaInstallProgress {
                         phase: "download".into(),
                         message: format!(
                             "下载中 {:.1}/{:.1} MB",
@@ -249,7 +262,7 @@ async fn install_java_inner(
         }
 
         // 3. 校验
-        let _ = sink.add(JavaInstallProgress {
+        notify(JavaInstallProgress {
             phase: "verify".into(),
             message: "校验 SHA256...".into(),
             progress: Some(0.92),
@@ -267,7 +280,7 @@ async fn install_java_inner(
         std::fs::remove_dir_all(&staging)?;
     }
     std::fs::create_dir_all(&staging)?;
-    let _ = sink.add(JavaInstallProgress {
+    let _ = notify(JavaInstallProgress {
         phase: "extract".into(),
         message: "解压运行时...".into(),
         progress: Some(0.95),
@@ -296,12 +309,12 @@ async fn install_java_inner(
     let _ = std::fs::remove_dir_all(&staging);
     let _ = std::fs::remove_file(&final_path); // 清理压缩包省空间
 
-    let _ = sink.add(JavaInstallProgress {
+    notify(JavaInstallProgress {
         phase: "finalize".into(),
         message: format!("已安装到 {}", target.display()),
         progress: Some(0.99),
     });
-    Ok(())
+    Ok(java_exe)
 }
 
 /// 平台标识（Adoptium API 用）

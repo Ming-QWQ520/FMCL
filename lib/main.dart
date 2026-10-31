@@ -1,84 +1,75 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
-import 'core/constants/app_constants.dart';
-import 'core/dirs/app_dirs.dart';
-import 'core/logger/app_logger.dart';
-import 'providers/settings_provider.dart';
-import 'rust_bridge/rust_bridge.dart';
+import 'rust_bridge/rust_bridge.dart' as rust;
+import 'state/app_providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ---------- 便携目录系统（exe 所在目录\FMCL\） ----------
-  await AppDirs.init();
-  AppDirs.ensureCore();
-
-  // ---------- 日志系统（输出至 exe 所在目录\FMCL\logs\） ----------
-  await AppLogger.I.init(AppDirs.logsDir);
-  AppLogger.info('Main', '${AppConstants.appFullName} ${AppConstants.appVersion} 启动');
-  AppLogger.info(
-    'Main',
-    '便携目录: root=${AppDirs.fmclRoot} exeDir=${AppDirs.exeDir.isEmpty ? "(非桌面)" : AppDirs.exeDir}',
-  );
-
-  // ---------- 全局错误捕获 ----------
-  final originalOnError = FlutterError.onError;
+  // ---------- 全局错误捕获（Rust 侧同时落盘） ----------
   FlutterError.onError = (details) {
-    AppLogger.error(
-        'Flutter', details.exceptionAsString(), details.exception, details.stack);
-    AppLogger.I.saveCrashReport(
-        '${details.exception}\n${details.stack}');
-    originalOnError?.call(details);
+    debugPrint('[Flutter] ${details.exceptionAsString()}');
   };
   PlatformDispatcher.instance.onError = (error, stack) {
-    AppLogger.error('Dart', error.toString(), error, stack);
-    AppLogger.I.saveCrashReport('$error\n$stack');
+    debugPrint('[Dart] $error\n$stack');
     return true;
   };
 
-  // ---------- 桌面窗口 ----------
-  if (!Platform.isAndroid) {
+  // ---------- 桌面窗口（无边框 + 自绘标题栏） ----------
+  if (!kIsWeb && Platform.isWindows) {
     await windowManager.ensureInitialized();
     const options = WindowOptions(
       size: Size(1120, 720),
-      minimumSize: Size(960, 600),
+      minimumSize: Size(960, 620),
       center: true,
-      // 不透明背景：透明背景 + 隐藏标题栏会在 Windows 顶部产生残影条
       backgroundColor: Color(0xFFF3F4F6),
       skipTaskbar: false,
-      titleBarStyle: TitleBarStyle.hidden, // 自绘标题栏
-      title: AppConstants.appFullName,
+      titleBarStyle: TitleBarStyle.hidden, // 自绘标题栏（runner 已处理 NCCALCSIZE）
+      title: 'FMCL',
     );
     await windowManager.waitUntilReadyToShow(options, () async {
-      await windowManager.setTitle('${AppConstants.appName} · ${AppConstants.appFullName}');
+      await windowManager.setTitle('FMCL - Fluent Minecraft Launcher');
       await windowManager.show();
       await windowManager.focus();
     });
   }
 
-  // ---------- Rust 后端 ----------
-  await initRustBridge();
+  // ---------- Rust 后端（目录解析 + 日志系统在此初始化） ----------
+  await rust.initRustBridge();
+  final info = await rust.initApp();
+  debugPrint(
+      '[Main] FMCL ${info.appVersion} | FMCL 根: ${info.fmclRoot} | 默认游戏目录: ${info.defaultGameDir}');
 
-  // ---------- 依赖注入 ----------
-  final prefs = await SharedPreferences.getInstance();
+  // ---------- 启动 Provider 体系 ----------
+  final container = ProviderContainer();
+  await container.read(settingsProvider.notifier).reload();
+  // ---------- 记忆的窗口尺寸（PCL2 式恢复上次窗口大小） ----------
+  try {
+    if (!kIsWeb && Platform.isWindows) {
+      final s = container.read(settingsProvider);
+      if (s.windowLauncherWidth > 200 && s.windowLauncherHeight > 200) {
+        await windowManager.setSize(Size(
+          s.windowLauncherWidth.toDouble(),
+          s.windowLauncherHeight.toDouble(),
+        ));
+      }
+    }
+  } catch (_) {}
 
-  runApp(ProviderScope(
-    overrides: [
-      sharedPreferencesProvider.overrideWithValue(prefs),
-    ],
+  runApp(UncontrolledProviderScope(
+    container: container,
     child: const FmclApp(),
   ));
 }
 
-/// 日志目录（供设置页"打开日志"使用）：exe 所在目录\FMCL\logs
+/// 日志目录（兼容入口）
 Future<String> logsDirectory() async {
-  return AppDirs.logsDir;
+  final info = await rust.initApp();
+  return info.logsDir;
 }

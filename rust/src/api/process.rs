@@ -159,12 +159,11 @@ pub async fn spawn_game_process(config: ProcessSpawnConfig) -> Result<i32> {
     Ok(handle_id)
 }
 
-/// 认领进程输出流并回传事件（同一 handle 只能 attach 一次）。
-/// Dart 侧拿到返回的 Stream 自行监听。
-pub fn attach_output_stream(
+/// 认领进程输出流并建立内部通道（FRB 层与启动管线共用）。
+/// 返回的通道在进程输出结束后自动关闭；同一 handle 只能认领一次。
+pub(crate) fn attach_output_stream_channel(
     handle_id: i32,
-    sink: crate::frb_generated::StreamSink<ProcessOutputEvent>,
-) -> Result<()> {
+) -> Result<tokio::sync::mpsc::UnboundedReceiver<ProcessOutputEvent>> {
     let mut registry = CHILDREN.lock().unwrap();
     let handle = registry
         .get_mut(&handle_id)
@@ -175,20 +174,37 @@ pub fn attach_output_stream(
     let stderr = handle.pending_stderr.take();
     drop(registry);
 
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ProcessOutputEvent>();
     if let Some(out) = stdout {
-        spawn_pump(out, handle_id, "stdout".into(), sink.clone());
+        spawn_pump_channel(out, handle_id, "stdout".into(), tx.clone());
     }
     if let Some(err) = stderr {
-        spawn_pump(err, handle_id, "stderr".into(), sink.clone());
+        spawn_pump_channel(err, handle_id, "stderr".into(), tx.clone());
     }
+    Ok(rx)
+}
+
+/// FRB 接口：认领输出流并回传事件（同一 handle 只能 attach 一次）。
+pub fn attach_output_stream(
+    handle_id: i32,
+    sink: crate::frb_generated::StreamSink<ProcessOutputEvent>,
+) -> Result<()> {
+    let mut rx = attach_output_stream_channel(handle_id)?;
+    tokio::spawn(async move {
+        while let Ok(event) = rx.recv().await {
+            if sink.add(event).is_err() {
+                break;
+            }
+        }
+    });
     Ok(())
 }
 
-fn spawn_pump<R: AsyncRead + Unpin + Send + 'static>(
+fn spawn_pump_channel<R: AsyncRead + Unpin + Send + 'static>(
     reader: R,
     handle_id: i32,
     stream_name: String,
-    sink: crate::frb_generated::StreamSink<ProcessOutputEvent>,
+    tx: tokio::sync::mpsc::UnboundedSender<ProcessOutputEvent>,
 ) {
     tokio::spawn(async move {
         let mut reader = BufReader::new(reader);
@@ -199,11 +215,16 @@ fn spawn_pump<R: AsyncRead + Unpin + Send + 'static>(
                 Ok(0) | Err(_) => break,
                 Ok(_) => {
                     let line = decode_line(&buf);
-                    let _ = sink.add(ProcessOutputEvent {
-                        pid: handle_id,
-                        stream: stream_name.clone(),
-                        line,
-                    });
+                    if tx
+                        .send(ProcessOutputEvent {
+                            pid: handle_id,
+                            stream: stream_name.clone(),
+                            line,
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             }
         }
@@ -272,4 +293,16 @@ pub async fn kill_game_process(handle_id: i32) -> Result<bool> {
 /// 列出仍在运行的句柄 id
 pub fn list_running_processes() -> Vec<i32> {
     CHILDREN.lock().unwrap().keys().copied().collect()
+}
+
+/// 终止全部由本启动器拉起的进程（会话取消用，异步等待锁避免阻塞运行时）
+pub async fn kill_all_owned() {
+    let ids = list_running_processes();
+    for id in ids {
+        let child_arc = CHILDREN.lock().unwrap().get(&id).map(|h| h.child.clone());
+        if let Some(child) = child_arc {
+            let mut c = child.lock().await;
+            let _ = c.start_kill();
+        }
+    }
 }

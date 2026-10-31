@@ -25,6 +25,16 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      # flutter_rust_bridge 代码生成所需（安装结果缓存，二次运行秒级）
+      - name: Cache cargo (FRB codegen)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+          key: frb-codegen-2.13.0-v1
+
       # 直接从 Google 官方发布站下载（runner 位于海外，直连官方源快且稳定）
       - name: Cache Flutter SDK
         uses: actions/cache@v4
@@ -51,6 +61,12 @@ jobs:
 
       - name: Pub get
         run: flutter pub get
+
+      - name: Install flutter_rust_bridge_codegen 2.13.0
+        run: cargo install flutter_rust_bridge_codegen@2.13.0 --locked
+
+      - name: Generate bridge bindings
+        run: flutter_rust_bridge_codegen generate
 
       - name: Build Windows release
         env:

@@ -2,6 +2,7 @@
 
 #include <dwmapi.h>
 #include <flutter_windows.h>
+#include <windowsx.h>
 
 #include "resource.h"
 
@@ -179,6 +180,51 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_NCCALCSIZE:
+      // 自绘标题栏（配合 window_manager TitleBarStyle.hidden）：
+      // 将客户区扩展到整个窗口，消除窗口顶部的残留标题栏/边框余条，
+      // 同时保留 WS_THICKFRAME 带来的边缘缩放能力。
+      if (wparam == TRUE) {
+        if (IsZoomed(hwnd)) {
+          // 最大化时按窗口边框内缩，避免内容溢出屏幕边缘
+          int pad = GetSystemMetrics(SM_CXSIZEFRAME) +
+                    GetSystemMetrics(SM_CXPADDEDBORDER);
+          auto params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+          params->rgrc[0].left += pad;
+          params->rgrc[0].top += pad;
+          params->rgrc[0].right -= pad;
+          params->rgrc[0].bottom -= pad;
+        }
+        return 0;
+      }
+      break;
+
+    case WM_NCHITTEST: {
+      // 保留边缘缩放热点（8 物理像素），其余交还默认处理；
+      // 标题栏拖拽由 Flutter 层的 DragArea 处理。
+      if (IsZoomed(hwnd)) {
+        break;
+      }
+      const LONG border = 8;
+      RECT rect;
+      if (GetWindowRect(hwnd, &rect)) {
+        POINT pt = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+        bool on_left = pt.x < rect.left + border;
+        bool on_right = pt.x >= rect.right - border;
+        bool on_top = pt.y < rect.top + border;
+        bool on_bottom = pt.y >= rect.bottom - border;
+        if (on_top && on_left) return HTTOPLEFT;
+        if (on_top && on_right) return HTTOPRIGHT;
+        if (on_bottom && on_left) return HTBOTTOMLEFT;
+        if (on_bottom && on_right) return HTBOTTOMRIGHT;
+        if (on_left) return HTLEFT;
+        if (on_right) return HTRIGHT;
+        if (on_top) return HTTOP;
+        if (on_bottom) return HTBOTTOM;
+      }
+      break;
+    }
+
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();

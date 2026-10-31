@@ -4,8 +4,7 @@
 //! Handshake (0x00) → Status Request (0x00) → 读取 JSON 响应 → Ping/Pong 测延迟。
 //!
 //! 借鉴 PCL.Core `Minecraft/ServerAddressResolver` 的职责划分：
-//! 地址解析（含 SRV 记录）与状态查询分离。SRV 解析需要额外 DNS 库，
-//! 当前版本仅支持直连 host:port（TODO 见模块尾部注释）。
+//! 地址解析与状态查询分离；当前支持直连 host:port（含默认端口 25565 补全）。
 
 use anyhow::{anyhow, bail, Result};
 use serde::Deserialize;

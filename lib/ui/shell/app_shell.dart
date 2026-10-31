@@ -1,368 +1,216 @@
-import 'dart:io';
-import 'dart:ui' show ImageFilter;
+/// 应用外壳：标题栏 + 左侧图标导航 + 内容区（PCL2 布局）。
+library;
 
-import 'package:desktop_drop/desktop_drop.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../core/router/app_router.dart';
-import '../../core/theme/app_theme.dart';
-import '../../data/models/game_account.dart';
-import '../../providers/account_provider.dart';
-import '../../providers/settings_provider.dart';
-import '../../widgets/common.dart';
-import '../versions/modpack_import_dialog.dart';
-import 'custom_title_bar.dart';
+import '../../state/app_providers.dart';
+import '../pages/accounts_page.dart';
+import '../pages/download_page.dart';
+import '../pages/home_page.dart';
+import '../pages/logs_page.dart';
+import '../pages/settings_page.dart';
+import '../theme/pcl_theme.dart';
+import '../widgets/common.dart';
+import 'title_bar.dart';
 
-/// 主框架：自绘标题栏 + 左侧导航栏 + 内容区
-/// （支持自定义背景图与整合包文件拖拽导入）。
-class AppShell extends ConsumerStatefulWidget {
-  final StatefulNavigationShell shell;
-
-  const AppShell({super.key, required this.shell});
+class AppShell extends ConsumerWidget {
+  const AppShell({super.key});
 
   @override
-  ConsumerState<AppShell> createState() => _AppShellState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    return const _ShellScaffold();
+  }
 }
 
-class _AppShellState extends ConsumerState<AppShell> {
-  bool _dragging = false;
+const List<String> _titles = ['主页', '下载', '账户', '日志', '设置'];
+const List<IconData> _icons = [
+  Icons.home_rounded,
+  Icons.download_rounded,
+  Icons.person_rounded,
+  Icons.article_outlined,
+  Icons.settings_rounded,
+];
 
-  /// 处理拖入的整合包文件
-  void _handleDropped(DropDoneDetails details) {
-    setState(() => _dragging = false);
-    for (final file in details.files) {
-      final lower = file.path.toLowerCase();
-      if (lower.endsWith('.mrpack') || lower.endsWith('.zip')) {
-        if (mounted) showModpackImport(context, initialFilePath: file.path);
-        return;
-      }
-    }
+class _ShellScaffold extends ConsumerStatefulWidget {
+  const _ShellScaffold();
+
+  @override
+  ConsumerState<_ShellScaffold> createState() => _ShellScaffoldState();
+}
+
+class _ShellScaffoldState extends ConsumerState<_ShellScaffold> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(localVersionsProvider.notifier).refresh();
+      ref.read(accountsProvider.notifier).reload();
+    });
   }
-
-  static const _navItems = [
-    (AppRoutes.home, Icons.play_circle_outline_rounded, '启动'),
-    (AppRoutes.download, Icons.download_outlined, '下载'),
-    (AppRoutes.versions, Icons.folder_copy_outlined, '版本'),
-    (AppRoutes.mods, Icons.apps_outlined, '资源'),
-    (AppRoutes.accounts, Icons.people_outline, '账户'),
-    (AppRoutes.settings, Icons.settings_outlined, '设置'),
-  ];
 
   @override
   Widget build(BuildContext context) {
-    final shell = widget.shell;
-    final ref = this.ref;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final settings = ref.watch(appSettingsProvider);
-    final bgPath = settings.backgroundImagePath;
-    final hasBg = bgPath.isNotEmpty && File(bgPath).existsSync();
-    // 有背景图时侧边栏半透明，让背景透出
-    final sidebarColor = hasBg
-        ? (isDark ? const Color(0xCC17181A) : const Color(0xB8FFFFFF))
-        : (isDark ? const Color(0xFF1B1E23) : const Color(0xFFF7F8FA));
-    final account = ref.watch(currentAccountProvider);
+    final settings = ref.watch(settingsProvider);
+    final isDark = isDarkTheme(context, settings);
+    final pageIndex = ref.watch(pageIndexProvider);
 
     return Scaffold(
-      body: DropTarget(
-        onDragEntered: (_) => setState(() => _dragging = true),
-        onDragExited: (_) => setState(() => _dragging = false),
-        onDragDone: _handleDropped,
-        child: Stack(
-          fit: StackFit.expand,
+      body: Column(
         children: [
-          // ---------- 拖拽覆盖提示 ----------
-          if (_dragging)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Container(
-                  color: Colors.black.withAlpha(70),
-                  alignment: Alignment.center,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 28, vertical: 18),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(AppTheme.radiusXL),
-                      border: Border.all(
-                          color: Theme.of(context).colorScheme.primary,
-                          width: 1.6),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.inventory_2_rounded),
-                        SizedBox(width: 10),
-                        Text('松开以导入整合包（.mrpack）',
-                            style: TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          // ---------- 背景图层（用户自定义） ----------
-          if (hasBg)
-            Positioned.fill(
-              child: ImageFiltered(
-                imageFilter: ImageFilter.blur(
-                  sigmaX: settings.backgroundBlur / 4,
-                  sigmaY: settings.backgroundBlur / 4,
-                  tileMode: TileMode.decal,
-                ),
-                child: Opacity(
-                  opacity: settings.backgroundOpacity.clamp(5, 100) / 100,
-                  child: Image.file(
-                    File(bgPath),
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                  ),
-                ),
-              ),
-            ),
-          // ---------- 主体内容 ----------
-          Column(
-        children: [
-          const CustomTitleBar(),
+          FmclTitleBar(currentPage: _titles[pageIndex]),
           Expanded(
             child: Row(
               children: [
-                // ---------- 侧边栏 ----------
-                Container(
-                  width: 190,
-                  color: sidebarColor,
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 12, 16, 20),
-                        child: Row(
-                          children: [
-                            const FmclLogo(size: 38),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'FMCL',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 1.2,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Fluent MC Launcher',
-                                    style: TextStyle(
-                                      fontSize: 10.5,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface
-                                          .withAlpha(110),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // 导航项（按分支索引高亮）
-                      ..._navItems.map((item) {
-                        final index = _navItems.indexOf(item);
-                        return _NavItem(
-                          icon: item.$2,
-                          label: item.$3,
-                          selected: shell.currentIndex == index,
-                          onTap: () => shell.goBranch(
-                            index,
-                            initialLocation: index == shell.currentIndex,
-                          ),
-                        );
-                      }),
-                      const Spacer(),
-                      // 底部账户卡
-                      Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: _AccountMiniCard(account: account),
-                      ),
-                      if (Platform.isAndroid)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Text(
-                            'Android 预览版',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withAlpha(100),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                // ---------- 内容区 ----------
+                _buildRail(isDark, pageIndex),
                 Expanded(
-                  child: ClipRRect(
-                    borderRadius:
-                        const BorderRadius.horizontal(left: Radius.circular(0)),
-                    child: shell,
-                  ),
-                ),
+                    child: _buildPage(context, settings, isDark, pageIndex)),
               ],
             ),
           ),
         ],
-        ),
-      ],
-      ),
       ),
     );
   }
+
+  Widget _buildRail(bool isDark, int pageIndex) {
+    return Container(
+      width: 76,
+      color: isDark ? const Color(0xFF232528) : const Color(0xFFECEEF1),
+      child: Column(
+        children: [
+          const SizedBox(height: 10),
+          for (var i = 0; i < _titles.length; i++)
+            _RailItem(
+              icon: _icons[i],
+              label: _titles[i],
+              selected: pageIndex == i,
+              isDark: isDark,
+              onTap: () => ref.read(pageIndexProvider.notifier).state = i,
+            ),
+          const Spacer(),
+          // 启动中的会话指示
+          Consumer(builder: (context, ref, _) {
+            final sessions = ref.watch(launchSessionsProvider);
+            final active = sessions.where((s) => s.isActive).length;
+            if (active == 0) return const SizedBox(height: 14);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: PclTag('$active 个游戏运行中', color: Colors.green),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPage(
+      BuildContext context, SettingsData settings, bool isDark, int pageIndex) {
+    Widget page;
+    switch (pageIndex) {
+      case 0:
+        page = const HomePage();
+        break;
+      case 1:
+        page = const DownloadPage();
+        break;
+      case 2:
+        page = const AccountsPage();
+        break;
+      case 3:
+        page = const LogsPage();
+        break;
+      default:
+        page = const SettingsPage();
+    }
+    final bg = isDark ? kDarkBg : kLightBg;
+    final Stack stack = Stack(
+      children: [
+        // 背景图（PCL2 式自定义背景）
+        if (settings.backgroundImagePath.trim().isNotEmpty &&
+            File(settings.backgroundImagePath.trim()).existsSync())
+          Positioned.fill(
+            child: Opacity(
+              opacity: (settings.backgroundOpacity.clamp(0, 100)) / 100,
+              child: Image.file(
+                File(settings.backgroundImagePath.trim()),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+          ),
+        Positioned.fill(child: page),
+      ],
+    );
+    return Container(color: bg, child: stack);
+  }
 }
 
-class _NavItem extends StatefulWidget {
+class _RailItem extends StatefulWidget {
   final IconData icon;
   final String label;
   final bool selected;
+  final bool isDark;
   final VoidCallback onTap;
 
-  const _NavItem({
+  const _RailItem({
     required this.icon,
     required this.label,
     required this.selected,
+    required this.isDark,
     required this.onTap,
   });
 
   @override
-  State<_NavItem> createState() => _NavItemState();
+  State<_RailItem> createState() => _RailItemState();
 }
 
-class _NavItemState extends State<_NavItem> {
+class _RailItemState extends State<_RailItem> {
   bool _hover = false;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final selectedColor =
-        isDark ? AppTheme.brandPrimary.withAlpha(46) : AppTheme.brandPrimary.withAlpha(30);
-    final hoverColor = isDark ? Colors.white.withAlpha(14) : Colors.black.withAlpha(10);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
+    final accent = widget.selected || _hover ? kAccent : null;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
+          duration: const Duration(milliseconds: 130),
+          margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+          padding: const EdgeInsets.symmetric(vertical: 9),
           decoration: BoxDecoration(
             color: widget.selected
-                ? selectedColor
+                ? kAccent.withAlpha(30)
                 : _hover
-                    ? hoverColor
+                    ? kAccent.withAlpha(14)
                     : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppTheme.radiusM),
+            borderRadius: BorderRadius.circular(9),
           ),
-          child: InkWell(
-            onTap: widget.onTap,
-            borderRadius: BorderRadius.circular(AppTheme.radiusM),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-              child: Row(
-                children: [
-                  Icon(
-                    widget.icon,
-                    size: 21,
-                    color: widget.selected
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withAlpha(150),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    widget.label,
-                    style: TextStyle(
-                      fontSize: 14.5,
-                      fontWeight: widget.selected
-                          ? FontWeight.w700
-                          : FontWeight.w500,
-                      color: widget.selected
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.onSurface.withAlpha(190),
-                    ),
-                  ),
-                ],
+          child: Column(
+            children: [
+              Icon(
+                widget.icon,
+                size: 21,
+                color: accent ?? (widget.isDark ? Colors.white60 : Colors.black54),
               ),
-            ),
+              const SizedBox(height: 3),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: widget.selected ? FontWeight.w700 : FontWeight.w500,
+                  color: accent ??
+                      (widget.isDark ? Colors.white54 : Colors.black45),
+                ),
+              ),
+            ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _AccountMiniCard extends StatelessWidget {
-  final GameAccount? account;
-
-  const _AccountMiniCard({this.account});
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      onTap: () => context.go(AppRoutes.accounts),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 16,
-            backgroundColor:
-                Theme.of(context).colorScheme.primary.withAlpha(40),
-            child: Text(
-              account?.name.isNotEmpty == true
-                  ? account!.name.characters.first.toUpperCase()
-                  : '?',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  account?.name ?? '未登录',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 13.5, fontWeight: FontWeight.w600),
-                ),
-                Text(
-                  account?.typeLabel ?? '点击添加账户',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Theme.of(context).colorScheme.onSurface.withAlpha(120),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(
-            Icons.chevron_right_rounded,
-            size: 18,
-            color: Theme.of(context).colorScheme.onSurface.withAlpha(90),
-          ),
-        ],
       ),
     );
   }

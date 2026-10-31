@@ -24,8 +24,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-type Sink = crate::frb_generated::StreamSink<InstallProgressEvent>;
 type CancelFlag = Arc<std::sync::atomic::AtomicBool>;
+
+/// 进度事件出口：FRB sink 与内部管线（整合包）共用的抽象。
+/// 回调需 Send+Sync（在 await 链路中传递，不进入 'static spawn）。
+pub(crate) type Emit<'a> = &'a (dyn Fn(InstallProgressEvent) + Send + Sync);
 
 /// OptiFine（高清修复）条目
 #[derive(Debug, Clone)]
@@ -80,16 +83,17 @@ pub struct InstallProgressEvent {
 // 下载源
 // ---------------------------------------------------------------------------
 
-const OFFICIAL_MANIFEST: &str =
+pub(crate) const OFFICIAL_MANIFEST: &str =
     "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
-const BMCLAPI_ROOT: &str = "https://bmclapi2.bangbang93.com";
+pub(crate) const BMCLAPI_ROOT: &str = "https://bmclapi2.bangbang93.com";
 const OFFICIAL_LIBS: &str = "https://libraries.minecraft.net";
 const OFFICIAL_RES: &str = "https://resources.download.minecraft.net";
 
-fn map_to_bmclapi(url: &str) -> Option<String> {
+pub(crate) fn map_to_bmclapi(url: &str) -> Option<String> {
     let mapped = if let Some(rest) = url
         .strip_prefix("https://launchermeta.mojang.com/")
         .or_else(|| url.strip_prefix("https://piston-meta.mojang.com/"))
+        .or_else(|| url.strip_prefix("https://piston-data.mojang.com/"))
     {
         format!("{BMCLAPI_ROOT}/{rest}")
     } else if let Some(rest) = url.strip_prefix("https://libraries.minecraft.net/") {
@@ -107,7 +111,7 @@ fn map_to_bmclapi(url: &str) -> Option<String> {
 }
 
 /// 生成 [首选, 回退…] 双源候选
-fn dual_urls(url: &str, bmclapi_first: bool) -> Vec<String> {
+pub(crate) fn dual_urls(url: &str, bmclapi_first: bool) -> Vec<String> {
     let alt = map_to_bmclapi(url);
     match (bmclapi_first, alt) {
         (true, Some(a)) => vec![a, url.to_string()],
@@ -152,7 +156,7 @@ async fn fetch_json(client: &reqwest::Client, urls: &[String]) -> Result<Value> 
     bail!("获取 JSON 失败: {last}")
 }
 
-async fn download_with_fallback(
+pub(crate) async fn download_with_fallback(
     urls: &[String],
     save: &Path,
     sha1: Option<&str>,
@@ -193,7 +197,7 @@ async fn download_with_fallback(
     bail!("下载失败: {last}")
 }
 
-fn verify_existing(item: &DownloadItem) -> bool {
+pub(crate) fn verify_existing(item: &DownloadItem) -> bool {
     if !Path::new(&item.save_path).exists() {
         return false;
     }
@@ -217,27 +221,27 @@ fn verify_existing(item: &DownloadItem) -> bool {
 // 进度
 // ---------------------------------------------------------------------------
 
-struct Progress<'a> {
-    sink: &'a Sink,
+pub(crate) struct Progress<'a> {
+    emit: Emit<'a>,
     cancelled: CancelFlag,
 }
 
 impl<'a> Progress<'a> {
-    fn new(sink: &'a Sink, cancelled: CancelFlag) -> Self {
-        Self { sink, cancelled }
+    pub(crate) fn new(emit: Emit<'a>, cancelled: CancelFlag) -> Self {
+        Self { emit, cancelled }
     }
 
-    fn step(&self, phase: &str, message: &str, fraction: f64) {
-        let _ = self.sink.add(InstallProgressEvent {
+    pub(crate) fn step(&self, phase: &str, message: &str, fraction: f64) {
+        (self.emit)(InstallProgressEvent {
             phase: phase.into(),
             message: message.into(),
             progress: fraction.clamp(0.0, 1.0),
         });
     }
 
-    fn check_cancel(&self) -> Result<()> {
+    pub(crate) fn check_cancel(&self) -> Result<()> {
         if self.cancelled.load(Ordering::Relaxed) {
-            let _ = self.sink.add(InstallProgressEvent {
+            (self.emit)(InstallProgressEvent {
                 phase: "cancelled".into(),
                 message: "安装已取消".into(),
                 progress: 0.0,
@@ -250,8 +254,8 @@ impl<'a> Progress<'a> {
 
 /// 批次下载（带 100ms 节流进度）
 #[allow(clippy::too_many_arguments)]
-async fn run_batch(
-    sink: &Sink,
+pub(crate) async fn run_batch(
+    emit: Emit<'_>,
     cancelled: &CancelFlag,
     items: &[DownloadItem],
     from: f64,
@@ -264,16 +268,16 @@ async fn run_batch(
     }
     let total = items.len() as i32;
     let counter = Arc::new(std::sync::Mutex::new((0i32, std::time::Instant::now())));
-    let sink_c = sink.clone();
+    let counter_c = counter.clone();
     let (finished, failed) = download_all(items, concurrency, cancelled.clone(), None, {
         move |_ok, _item, _err| {
-            let mut g = counter.lock().unwrap();
+            let mut g = counter_c.lock().unwrap();
             g.0 += 1;
             let now = std::time::Instant::now();
             if now.duration_since(g.1).as_millis() >= 100 || g.0 >= total {
                 g.1 = now;
                 let frac = from + (to - from) * (g.0 as f64 / total as f64);
-                let _ = sink_c.add(InstallProgressEvent {
+                emit(InstallProgressEvent {
                     phase: "download".into(),
                     message: format!("下载{label}（{}/{}）", g.0, total),
                     progress: frac.clamp(0.0, 1.0),
@@ -283,7 +287,7 @@ async fn run_batch(
     })
     .await;
     if cancelled.load(Ordering::Relaxed) {
-        let _ = sink.add(InstallProgressEvent {
+        emit(InstallProgressEvent {
             phase: "cancelled".into(),
             message: "安装已取消".into(),
             progress: from,
@@ -293,7 +297,7 @@ async fn run_batch(
     if failed > 0 {
         bail!("{label}下载失败：{failed}/{total} 个文件未完成");
     }
-    let _ = sink.add(InstallProgressEvent {
+    emit(InstallProgressEvent {
         phase: "download".into(),
         message: format!("{label}下载完成（{finished}/{total}）"),
         progress: to,
@@ -305,19 +309,30 @@ async fn run_batch(
 // 主入口
 // ---------------------------------------------------------------------------
 
-/// 执行合并安装，返回最终版本 id。
+/// 执行合并安装（FRB 接口，进度走事件流），返回最终版本 id。
 pub async fn install_combined(
     request: InstallRequest,
-    sink: Sink,
+    sink: crate::frb_generated::StreamSink<InstallProgressEvent>,
+) -> Result<String> {
+    install_combined_core(request, move |ev| {
+        let _ = sink.add(ev);
+    })
+    .await
+}
+
+/// 内部核心安装管线（供整合包安装等内部调用方复用，进度走回调）。
+pub(crate) async fn install_combined_core(
+    request: InstallRequest,
+    notify: impl Fn(InstallProgressEvent) + Send + Sync,
 ) -> Result<String> {
     if !CANCEL_REGISTRY.contains(&request.session_id) {
         CANCEL_REGISTRY.create(&request.session_id);
     }
     let cancelled = CANCEL_REGISTRY.handle(&request.session_id);
-    let pg = Progress::new(&sink, cancelled.clone());
+    let pg = Progress::new(&notify, cancelled.clone());
     let concurrency = request.concurrency.max(1) as usize;
 
-    let result = run_pipeline(&request, &pg, &sink, concurrency, cancelled.clone()).await;
+    let result = run_pipeline(&request, &pg, &notify, concurrency, cancelled.clone()).await;
     match result {
         Ok(id) => {
             pg.step("done", &format!("安装完成：{id}"), 1.0);
@@ -327,7 +342,7 @@ pub async fn install_combined(
             if e.to_string().contains("已取消") {
                 Err(e)
             } else {
-                let _ = sink.add(InstallProgressEvent {
+                notify(InstallProgressEvent {
                     phase: "failed".into(),
                     message: format!("安装失败: {e}"),
                     progress: 0.0,
@@ -342,7 +357,7 @@ pub async fn install_combined(
 async fn run_pipeline(
     req: &InstallRequest,
     pg: &Progress<'_>,
-    sink: &Sink,
+    emit: Emit<'_>,
     concurrency: usize,
     cancelled: CancelFlag,
 ) -> Result<String> {
@@ -404,12 +419,12 @@ async fn run_pipeline(
 
         // ---------- 3. 支持库 ----------
         let lib_items = collect_lib_items(vanilla_json.get("libraries"), &game_dir, req.use_bmclapi);
-        run_batch(sink, &cancelled, &lib_items, 0.10, 0.24, concurrency, "支持库").await?;
+        run_batch(emit, &cancelled, &lib_items, 0.10, 0.24, concurrency, "支持库").await?;
 
         // ---------- 4. 资源 ----------
         let asset_items =
             collect_asset_items(&client, &vanilla_json, &game_dir, req.use_bmclapi).await?;
-        run_batch(sink, &cancelled, &asset_items, 0.24, 0.44, concurrency, "资源文件").await?;
+        run_batch(emit, &cancelled, &asset_items, 0.24, 0.44, concurrency, "资源文件").await?;
 
         // ---------- 5. 加载器 ----------
         let mut profiles: Vec<Value> = Vec::new();
@@ -422,7 +437,7 @@ async fn run_pipeline(
         if let Some((kind, ver)) = forgelike {
             pg.step("resolve", &format!("解析 {kind} 安装器..."), 0.45);
             let (profile_json, patched_jar) = install_forgelike(
-                &client, req, pg, sink, kind, ver, &game_dir, &jar_path, &cancelled, concurrency,
+                &client, req, pg, emit, kind, ver, &game_dir, &jar_path, &cancelled, concurrency,
             )
             .await?;
             profiles.push(profile_json);
@@ -495,7 +510,7 @@ async fn run_pipeline(
             .filter(|it| !verify_existing(it))
             .collect();
         if !missing.is_empty() {
-            run_batch(sink, &cancelled, &missing, 0.88, 0.96, concurrency, "补全支持库").await?;
+            run_batch(emit, &cancelled, &missing, 0.88, 0.96, concurrency, "补全支持库").await?;
         }
 
         // ---------- 9. 落盘 ----------
@@ -568,8 +583,8 @@ fn ensure_safe_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// 规则评估（os / arch）
-fn lib_allowed(lib: &Value, os_name: &str, arch: &str) -> bool {
+/// lib 规则评估（os / arch）——供 launch_api 复用
+pub(crate) fn lib_allowed(lib: &Value, os_name: &str, arch: &str) -> bool {
     let Some(rules) = lib["rules"].as_array() else {
         return true;
     };
@@ -622,8 +637,28 @@ fn make_item(urls: Vec<String>, save: PathBuf, sha: Option<String>, size: Option
     }
 }
 
+/// 客户端 jar 下载候选（官方 piston-data + BMCLAPI version 直链）
+pub(crate) fn client_urls_for(client_info: &Value, bmclapi_first: bool) -> Vec<String> {
+    let official = client_info["url"].as_str().unwrap_or_default().to_string();
+    let bmcl_client = client_info["url"]
+        .as_str()
+        .and_then(|u| map_to_bmclapi(u))
+        .unwrap_or_default();
+    let mut urls = Vec::new();
+    if bmclapi_first && !bmcl_client.is_empty() {
+        urls.push(bmcl_client);
+    }
+    if !official.is_empty() {
+        urls.push(official);
+    }
+    if !bmclapi_first && !bmcl_client.is_empty() {
+        urls.push(bmcl_client);
+    }
+    urls
+}
+
 /// 从 libraries 数组构造下载清单
-fn collect_lib_items(libs: Option<&Value>, game_dir: &Path, bmclapi_first: bool) -> Vec<DownloadItem> {
+pub(crate) fn collect_lib_items(libs: Option<&Value>, game_dir: &Path, bmclapi_first: bool) -> Vec<DownloadItem> {
     let os_name = current_os();
     let arch = if cfg!(target_arch = "aarch64") { "aarch64" } else { "x86_64" };
     let libraries_dir = game_dir.join("libraries");
@@ -685,6 +720,11 @@ fn collect_lib_items(libs: Option<&Value>, game_dir: &Path, bmclapi_first: bool)
     items
 }
 
+/// maven 坐标 → 相对路径（对外别名，launch_api 复用）
+pub(crate) fn coord_to_path_pub(coord: &str) -> Option<String> {
+    coord_to_path(coord)
+}
+
 /// maven 坐标 → 相对路径（group:artifact:version[:classifier][@ext]）
 ///
 /// 支持 Forge 安装器的 @ext 记法：
@@ -715,7 +755,7 @@ fn coord_to_path(coord: &str) -> Option<String> {
 }
 
 /// 资源索引 + 资源文件清单
-async fn collect_asset_items(
+pub(crate) async fn collect_asset_items(
     client: &reqwest::Client,
     vanilla_json: &Value,
     game_dir: &Path,
@@ -789,7 +829,7 @@ async fn install_forgelike(
     client: &reqwest::Client,
     req: &InstallRequest,
     pg: &Progress<'_>,
-    sink: &Sink,
+    emit: Emit<'_>,
     kind: String,
     version: String,
     game_dir: &Path,
@@ -873,7 +913,7 @@ async fn install_forgelike(
         &format!("下载 {kind} 支持库（{}）...", lib_items.len()),
         0.50,
     );
-    run_batch(sink, cancelled, &lib_items, 0.50, 0.58, concurrency, &format!("{kind} 支持库")).await?;
+    run_batch(emit, cancelled, &lib_items, 0.50, 0.58, concurrency, &format!("{kind} 支持库")).await?;
 
     // MOJMAPS 特例：从原版 client_mappings 下载映射
     if let Some(mojmaps) = profile.pointer("/data/MOJMAPS/client").and_then(|v| v.as_str()) {
@@ -925,7 +965,7 @@ async fn install_forgelike(
         &data,
         &libraries_dir,
         &java,
-        sink,
+        emit,
         cancelled,
         0.58,
         0.78,
@@ -1029,7 +1069,10 @@ fn resolve_profile_data(
     .into_iter()
     .collect();
 
-    let mut resolved = std::collections::HashMap::new();
+    // 内置常量并入最终替换表（HMCL 同语义）：
+    // Forge/NeoForge 处理器参数中的 {SIDE} {MINECRAFT_VERSION} {ROOT} 等可能
+    // 不出现在 install_profile.data 里，必须由启动器提供。
+    let mut resolved = known.clone();
     let Some(map) = data.and_then(|d| d.as_object()) else {
         return Ok(resolved);
     };
@@ -1081,7 +1124,7 @@ async fn run_processors(
     data: &std::collections::HashMap<String, String>,
     libraries_dir: &Path,
     java: &str,
-    sink: &Sink,
+    emit: Emit<'_>,
     cancelled: &CancelFlag,
     from: f64,
     to: f64,
@@ -1106,7 +1149,7 @@ async fn run_processors(
         }
         let main_coord = proc_def["jar"].as_str().unwrap_or_default();
         let label = main_coord.split(':').nth(1).unwrap_or(main_coord);
-        let _ = sink.add(InstallProgressEvent {
+        let _ = emit(InstallProgressEvent {
             phase: "process".into(),
             message: format!("执行处理器 {}/{}: {label}", i + 1, total),
             progress: from + (to - from) * (i as f64 / total.max(1) as f64),
