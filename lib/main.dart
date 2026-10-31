@@ -86,7 +86,7 @@ Future<void> main() async {
   runApp(
     ValueListenableBuilder<Widget>(
       valueListenable: root,
-      builder: (_, widget, __) => widget,
+      builder: (_, widget, _) => widget,
     ),
   );
 
@@ -385,7 +385,7 @@ class _BootstrapApp extends StatelessWidget {
               const SizedBox(height: 14),
               ValueListenableBuilder<String>(
                 valueListenable: stage,
-                builder: (_, text, __) => Text(
+                builder: (_, text, _) => Text(
                   text,
                   style: const TextStyle(
                       fontSize: 13, color: Color(0xFF3A3F45)),
