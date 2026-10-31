@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -17,20 +18,32 @@ void _logToRustFile(String level, String module, String message) {
   } catch (_) {}
 }
 
+/// 截取堆栈首部 N 行（含关键的应用层帧，去除冗余框架尾部）。
+String _trimStack(StackTrace? stack, int lines) {
+  if (stack == null) return '';
+  final parts = stack.toString().split('\n').take(lines).join('\n');
+  return parts;
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // ---------- 全局错误捕获（处理函数自身绝不抛错，避免二次异常杀死应用） ----------
+  // 注意：必须携带堆栈首部，否则仅凭 "Null check operator used on a null value"
+  // 无法定位崩溃点（用户日志定位问题的唯一线索）。
   FlutterError.onError = (details) {
     try {
-      debugPrint('[Flutter] ${details.exceptionAsString()}');
-      _logToRustFile('ERROR', 'Flutter', details.exceptionAsString());
+      final msg =
+          '${details.exceptionAsString()}\n${_trimStack(details.stack, 8)}';
+      debugPrint('[Flutter] $msg');
+      _logToRustFile('ERROR', 'Flutter', msg);
     } catch (_) {}
   };
   PlatformDispatcher.instance.onError = (error, stack) {
     try {
-      debugPrint('[Dart] $error\n$stack');
-      _logToRustFile('ERROR', 'Dart', '$error');
+      final msg = '$error\n${_trimStack(stack, 8)}';
+      debugPrint('[Dart] $msg');
+      _logToRustFile('ERROR', 'Dart', msg);
     } catch (_) {}
     return true;
   };
@@ -39,8 +52,10 @@ Future<void> main() async {
   // 任何构建期错误都渲染为明确的错误页，杜绝"白屏却不知原因"。
   ErrorWidget.builder = (details) {
     try {
-      debugPrint('[Build] ${details.exceptionAsString()}');
-      _logToRustFile('ERROR', 'Build', details.exceptionAsString());
+      final msg =
+          '${details.exceptionAsString()}\n${_trimStack(details.stack, 8)}';
+      debugPrint('[Build] $msg');
+      _logToRustFile('ERROR', 'Build', msg);
     } catch (_) {}
     return StartupErrorView(
       title: '界面渲染出错',
@@ -234,6 +249,13 @@ class StartupErrorView extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData.light(useMaterial3: true),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      locale: const Locale('zh', 'CN'),
       home: Container(
         color: const Color(0xFFF6F7F9),
         padding: const EdgeInsets.all(28),
@@ -342,6 +364,13 @@ class _BootstrapApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData.light(useMaterial3: true),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      locale: const Locale('zh', 'CN'),
       home: Container(
         color: const Color(0xFFF3F5F8),
         child: Center(

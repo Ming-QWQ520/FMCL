@@ -37,7 +37,10 @@ pub struct SearchHit {
     pub date_modified: String,
 }
 
-/// 搜索 Modrinth 内容（按当前游戏版本与加载器过滤）
+/// 搜索 Modrinth 内容（按当前游戏版本与加载器过滤）。
+///
+/// Modrinth 国内直连可达性不稳定：连接超时后自动重试一次；
+/// 仍失败时给出可执行的错误指引。
 pub async fn search_content(
     query: String,
     category: String,
@@ -53,31 +56,52 @@ pub async fn search_content(
         urlencoding_lite(&facets),
     );
     let c = client()?;
-    let json: Value = c
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| anyhow!("搜索失败: {e}"))?
-        .json()
-        .await
-        .map_err(|e| anyhow!("搜索结果解析失败: {e}"))?;
-    let hits = json["hits"]
-        .as_array()
-        .ok_or_else(|| anyhow!("搜索结果格式异常"))?;
-    Ok(hits
-        .iter()
-        .map(|h| SearchHit {
-            project_id: h["project_id"].as_str().unwrap_or("").to_string(),
-            slug: h["slug"].as_str().unwrap_or("").to_string(),
-            title: h["title"].as_str().unwrap_or("").to_string(),
-            description: h["description"].as_str().unwrap_or("").to_string(),
-            author: h["author"].as_str().unwrap_or("").to_string(),
-            downloads: h["downloads"].as_i64().unwrap_or(0),
-            icon_url: h["icon_url"].as_str().unwrap_or("").to_string(),
-            category: category.clone(),
-            date_modified: h["date_modified"].as_str().unwrap_or("").to_string(),
-        })
-        .collect())
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 0..2 {
+        if attempt > 0 {
+            crate::log_warn!("Content", "Modrinth 搜索超时/失败，重试第 {attempt} 次");
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        }
+        match c
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("连接 Modrinth 失败: {e}"))
+        {
+            Err(e) => {
+                last_err = Some(e);
+                continue;
+            }
+            Ok(resp) => {
+                let json: Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| anyhow!("搜索结果解析失败: {e}"))?;
+                let hits = json["hits"]
+                    .as_array()
+                    .ok_or_else(|| anyhow!("搜索结果格式异常"))?;
+                return Ok(hits
+                    .iter()
+                    .map(|h| SearchHit {
+                        project_id: h["project_id"].as_str().unwrap_or("").to_string(),
+                        slug: h["slug"].as_str().unwrap_or("").to_string(),
+                        title: h["title"].as_str().unwrap_or("").to_string(),
+                        description: h["description"].as_str().unwrap_or("").to_string(),
+                        author: h["author"].as_str().unwrap_or("").to_string(),
+                        downloads: h["downloads"].as_i64().unwrap_or(0),
+                        icon_url: h["icon_url"].as_str().unwrap_or("").to_string(),
+                        category: category.clone(),
+                        date_modified: h["date_modified"].as_str().unwrap_or("").to_string(),
+                    })
+                    .collect());
+            }
+        }
+    }
+    let e = last_err.unwrap_or_else(|| anyhow!("搜索失败"));
+    bail!(
+        "无法连接 Modrinth（网络受限或代理未开启）。请检查网络后重试，\
+         或先在「下载 → 新游戏」安装版本：{e}"
+    )
 }
 
 fn build_facets(category: &str, mc_version: &str, loader: &str) -> String {

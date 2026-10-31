@@ -10,6 +10,11 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # ---------- 本地化（中文 MaterialLocalizations，缺失会导致
+  # TextField 等组件在 zh_CN 下构建时崩溃：Null check operator） ----------
+  flutter_localizations:
+    sdk: flutter
+
   # ---------- 状态管理 ----------
   flutter_riverpod: ^3.0.0
 

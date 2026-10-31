@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'state/app_providers.dart';
@@ -43,9 +44,15 @@ class _FmclAppState extends ConsumerState<FmclApp> {
           ? ThemeMode.dark
           : ThemeMode.light,
       home: const AppShell(),
+      // 中文本地化：DefaultMaterialLocalizations 仅支持英文，在 locale=zh_CN
+      // 下不会加载，MaterialLocalizations 为 null —— 任何 TextField /
+      // Tooltip / 下拉等组件构建时都会抛
+      // "Null check operator used on a null value"（release 无断言直达空检查）。
+      // 必须使用 GlobalMaterialLocalizations 提供完整中文资源。
       localizationsDelegates: const [
-        DefaultMaterialLocalizations.delegate,
-        DefaultWidgetsLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
       locale: const Locale('zh', 'CN'),
