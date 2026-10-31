@@ -26,6 +26,11 @@ pub struct LogEntry {
 
 static LOGGER: OnceLock<Logger> = OnceLock::new();
 
+/// 日志系统初始化前的缓冲（早于 init_app 的桥接诊断日志不能丢，
+/// 否则启动问题无证可查）。初始化完成后回放并清空。
+static PRE_INIT: Mutex<Vec<LogEntry>> = Mutex::new(Vec::new());
+const PRE_INIT_CAP: usize = 1024;
+
 pub struct Logger {
     dir: PathBuf,
     file: Mutex<Option<File>>,
@@ -52,7 +57,47 @@ pub fn init(dir: PathBuf) -> Result<&'static Logger, String> {
         tx,
     };
     let _ = LOGGER.set(logger);
-    Ok(LOGGER.get().unwrap())
+    let logger = LOGGER.get().unwrap();
+
+    // 回放初始化前的预缓冲日志（按原时间戳写入，保证启动链路可追溯）
+    let replayed = match PRE_INIT.lock() {
+        Ok(mut buf) => {
+            let entries: Vec<LogEntry> = buf.drain(..).collect();
+            for e in &entries {
+                let line = format!(
+                    "[{}] [{}] [{}] {}\n",
+                    e.time, e.level, e.module, e.message
+                );
+                if let Ok(mut guard) = logger.file.lock() {
+                    if let Some(f) = guard.as_mut() {
+                        let _ = f.write_all(line.as_bytes());
+                    }
+                }
+                let _ = logger.tx.send(e.clone());
+            }
+            let _ = logger.file.lock().map(|mut g| {
+                if let Some(f) = g.as_mut() {
+                    let _ = f.flush();
+                }
+            });
+            entries.len()
+        }
+        Err(_) => 0,
+    };
+    if replayed > 0 {
+        let line = format!(
+            "[{}] [INFO] [Core] 日志系统已初始化（回放预缓冲 {} 条）\n",
+            chrono_now(),
+            replayed
+        );
+        if let Ok(mut guard) = logger.file.lock() {
+            if let Some(f) = guard.as_mut() {
+                let _ = f.write_all(line.as_bytes());
+                let _ = f.flush();
+            }
+        }
+    }
+    Ok(logger)
 }
 
 /// 轮转：保留最近 10 份 latest-*.log
@@ -122,14 +167,20 @@ pub fn civil_from_unix(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
 
 /// 写入一条日志（落盘 + 广播）
 pub fn log(level: &str, module: &str, message: &str) {
-    let Some(logger) = LOGGER.get() else {
-        return;
-    };
     let entry = LogEntry {
         time: chrono_now(),
         level: level.to_string(),
         module: module.to_string(),
         message: message.to_string(),
+    };
+    let Some(logger) = LOGGER.get() else {
+        // 尚未初始化：进入预缓冲（保留最早期的诊断日志，如桥接回调注册）
+        if let Ok(mut buf) = PRE_INIT.lock() {
+            if buf.len() < PRE_INIT_CAP {
+                buf.push(entry);
+            }
+        }
+        return;
     };
     let line = format!(
         "[{}] [{}] [{}] {}\n",

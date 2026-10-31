@@ -27,6 +27,11 @@ Future<void> initRustBridge() async {
   _rustReady = true;
 }
 
+/// 核心健康检查（同步，不依赖回调管线）。
+///
+/// 校验 DLL 存在且 ABI 版本配套；失败抛出异常。
+void pingCore() => _ffi.ping();
+
 /// 将 Dart 侧日志/全局错误转发到 Rust 落盘（写入 FMCL\logs\latest.log）。
 ///
 /// fire-and-forget：绝不抛出、绝不阻塞调用方；桥未就绪时静默忽略。
@@ -1031,20 +1036,22 @@ Stream<T> _invokeStream<T>(
 // 类型化 API（与 rust/src/dispatch.rs 一一对应）
 // ---------------------------------------------------------------------------
 
-/// 应用初始化：解析便携目录、创建子目录、初始化日志
-Future<AppInfo> initApp() => _invoke(
-  'init_app',
-  null,
-  (v) => AppInfo.fromJson((v as Map).cast<String, dynamic>()),
-);
+/// 应用初始化：解析便携目录、创建子目录、初始化日志。
+///
+/// 启动关键路径：走同步桥（callSync），不依赖事件回调管线 ——
+/// 即使回调投递链路异常，启动也能完成。仅限本地毫秒级操作。
+Future<AppInfo> initApp() async {
+  final v = _ffi.callSync('init_app');
+  return AppInfo.fromJson((v as Map).cast<String, dynamic>());
+}
 
 // ---------- 设置 ----------
 
-Future<SettingsData> getSettings() => _invoke(
-  'get_settings',
-  null,
-  (v) => SettingsData.fromJson((v as Map).cast<String, dynamic>()),
-);
+/// 读取设置（启动关键路径：同步桥，理由同 initApp）
+Future<SettingsData> getSettings() async {
+  final v = _ffi.callSync('get_settings');
+  return SettingsData.fromJson((v as Map).cast<String, dynamic>());
+}
 
 Future<void> saveSettings({required SettingsData settings}) =>
     _invoke('save_settings', {'settings': settings.toJson()}, (_) {});

@@ -36,6 +36,16 @@ class RustFfi {
 
   late final DynamicLibrary _lib;
   late final int Function(Pointer<Char>, Pointer<Char>) _fmclCall;
+  late final int Function(Pointer<Char>, Pointer<Char>, Pointer<Char>, int)
+  _fmclCallSync;
+  late final int Function() _fmclPing;
+
+  /// 事件回调（进程生命周期内常驻持有！）。
+  ///
+  /// 绝不能让本对象变成不可达：NativeCallable 一旦被 GC 回收，原生侧
+  /// 持有的函数指针随即失效，此后所有 Rust → Dart 响应都静默丢失，
+  /// 表现为一切调用永久挂起（启动/下载/启动游戏全部无响应）。
+  NativeCallable<Void Function(Pointer<Char>)>? _callback;
 
   /// 调用 id → Future
   final Map<int, Completer<dynamic>> _pending = {};
@@ -52,22 +62,41 @@ class RustFfi {
   /// 是否已成功加载并初始化
   bool get isReady => _ready;
 
+  /// 桥接 ABI 版本（与 rust/src/bridge.rs 的 FMCL_ABI_VERSION 严格一致，
+  /// 两侧同时发布；不一致说明 DLL 与程序版本不配套）
+  static const int abiVersion = 1;
+
+  /// fmcl_ping 魔法数高 32 位（"FMCL" 的 ASCII）
+  static const int _pingMagic = 0x464D434C;
+
   /// 加载动态库并完成初始化（幂等）。失败抛出异常，由上层决定策略。
   void ensureLoaded() {
     if (_ready) return;
 
     _lib = _openLibrary();
 
-    // 事件回调（进程生命周期内常驻）
+    // 健康检查：确认这是配套 ABI 版本的 DLL（旧版/半解压/被篡改的
+    // DLL 会在后续产生难以理解的静默故障，这里直接给出明确诊断）
+    _fmclPing = _lib
+        .lookupFunction<Int64 Function(), int Function()>('fmcl_ping');
+    final ping = _fmclPing();
+    if (ping >> 32 != _pingMagic || (ping & 0xFFFFFFFF) != abiVersion) {
+      throw StateError(
+        'rust_lib_fmcl.dll 与程序版本不配套（ping=0x${ping.toRadixString(16)}，'
+        '期望 ABI=$abiVersion）。请删除后重新完整解压压缩包再运行。',
+      );
+    }
+
+    // 事件回调（进程生命周期内常驻，存入字段防止 GC 回收 —— 见字段注释）
     final setCallback = _lib
         .lookupFunction<
           Void Function(Pointer<NativeFunction<Void Function(Pointer<Char>)>>),
           void Function(Pointer<NativeFunction<Void Function(Pointer<Char>)>>)
         >('fmcl_set_event_callback');
-    final callback = NativeCallable<Void Function(Pointer<Char>)>.listener(
+    _callback = NativeCallable<Void Function(Pointer<Char>)>.listener(
       _onEvent,
     );
-    setCallback(callback.nativeFunction);
+    setCallback(_callback!.nativeFunction);
 
     _lib.lookupFunction<Int32 Function(), int Function()>('fmcl_init')();
 
@@ -76,6 +105,12 @@ class RustFfi {
           Int64 Function(Pointer<Char>, Pointer<Char>),
           int Function(Pointer<Char>, Pointer<Char>)
         >('fmcl_call');
+
+    _fmclCallSync = _lib
+        .lookupFunction<
+          Int64 Function(Pointer<Char>, Pointer<Char>, Pointer<Char>, Size),
+          int Function(Pointer<Char>, Pointer<Char>, Pointer<Char>, int)
+        >('fmcl_call_sync');
 
     _ready = true;
   }
@@ -105,6 +140,57 @@ class RustFfi {
       return DynamicLibrary.open('$exeDir/lib$name.dylib');
     }
     return DynamicLibrary.open('$exeDir/lib$name.so');
+  }
+
+  /// 同步健康检查（不依赖回调管线）。DLL 未加载或版本不配套时抛出异常。
+  void ping() {
+    ensureLoaded();
+    final p = _fmclPing();
+    if (p >> 32 != _pingMagic || (p & 0xFFFFFFFF) != abiVersion) {
+      throw StateError('核心健康检查失败（ping=0x${p.toRadixString(16)}）');
+    }
+  }
+
+  /// 同步调用一个方法（仅供启动关键路径使用）。
+  ///
+  /// 在调用线程上直接执行并返回响应 value 部分，不经过事件回调管线 ——
+  /// 即使回调投递链路异常，启动也能完成。仅限本地快速方法
+  /// （init_app / get_settings 等毫秒级调用），严禁用于网络/长耗时任务。
+  dynamic callSync(String method, [Map<String, dynamic>? params]) {
+    ensureLoaded();
+    final methodPtr = method.toNativeUtf8().cast<Char>();
+    final payloadPtr = jsonEncode(
+      params ?? const {},
+    ).toNativeUtf8().cast<Char>();
+    Pointer<Char> buf = calloc<Char>(64 * 1024);
+    try {
+      var r = _fmclCallSync(methodPtr, payloadPtr, buf, 64 * 1024);
+      if (r > 0) {
+        // 缓冲不足：按所需大小重试一次（附上限保护，防止异常返回值）
+        if (r > 16 * 1024 * 1024) {
+          throw FmclBridgeException('同步调用 $method 返回异常大小（$r）');
+        }
+        calloc.free(buf);
+        buf = calloc<Char>(r);
+        r = _fmclCallSync(methodPtr, payloadPtr, buf, r);
+      }
+      if (r != 0) {
+        throw FmclBridgeException('同步调用 $method 失败（code=$r）');
+      }
+      final text = buf.cast<Utf8>().toDartString();
+      final dynamic msg = jsonDecode(text);
+      if (msg is! Map<String, dynamic>) {
+        throw FmclBridgeException('同步调用 $method 响应格式异常');
+      }
+      if (msg['ok'] != true) {
+        throw FmclBridgeException('${msg['error'] ?? '执行失败'}');
+      }
+      return msg['value'];
+    } finally {
+      calloc.free(buf);
+      calloc.free(methodPtr);
+      calloc.free(payloadPtr);
+    }
   }
 
   /// 单一事件入口（Rust 任意线程触发）

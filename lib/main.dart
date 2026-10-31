@@ -52,8 +52,6 @@ Future<void> main() async {
   };
 
   // ---------- 桌面窗口（无边框 + 自绘标题栏，先创建但暂不显示） ----------
-  // 窗口延迟到 runApp 之后显示：初始化 Rust/设置期间（杀毒扫描 dll 可达数秒）
-  // 不再出现无内容的白窗，用户看到窗口时内容已就绪。
   if (!kIsWeb && Platform.isWindows) {
     try {
       await windowManager.ensureInitialized();
@@ -78,40 +76,67 @@ Future<void> main() async {
     }
   }
 
-  // ---------- Rust 后端（目录解析 + 日志系统在此初始化） ----------
-  // 桥初始化失败属致命错误（全部业务逻辑在 Rust 侧），但绝不能以白屏收场：
-  // 捕获后直接渲染明确的错误页（常见原因：rust_lib_fmcl.dll 被杀毒软件
-  // 隔离或压缩包解压不完整）。20 秒超时兜底：即使响应意外挂起也给出错误页。
-  String? fatalMessage;
-  try {
-    await rust
-        .initRustBridge()
-        .timeout(const Duration(seconds: 20));
-    final info = await rust
-        .initApp()
-        .timeout(const Duration(seconds: 20));
-    debugPrint(
-      '[Main] FMCL ${info.appVersion} | FMCL 根: ${info.fmclRoot} | 默认游戏目录: ${info.defaultGameDir}',
-    );
-  } catch (e, s) {
-    fatalMessage = '$e';
-    debugPrint('[Main] Rust 后端初始化失败: $e\n$s');
+  // ---------- 启动流程 ----------
+  // 根视图切换器：启动页 → 主界面 / 错误页。
+  // 启动页在窗口显示前就已经渲染完毕，因此无论初始化耗时多久
+  // （杀毒软件扫描核心 DLL 可能耗时数十秒），用户看到的都是明确的
+  // "FMCL 正在启动"而非空白窗口或无响应。
+  final stage = ValueNotifier<String>('正在准备界面…');
+  final root = ValueNotifier<Widget>(_BootstrapApp(stage: stage));
+  runApp(
+    ValueListenableBuilder<Widget>(
+      valueListenable: root,
+      builder: (_, widget, __) => widget,
+    ),
+  );
+
+  // 首帧就绪后再显示窗口：用户看到的窗口自带完整启动页内容，绝不白屏
+  if (!kIsWeb && Platform.isWindows) {
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (e, s) {
+      debugPrint('[Main] 窗口显示异常: $e\n$s');
+    }
   }
 
-  // ---------- 启动 Provider 体系 ----------
-  final container = ProviderContainer();
-  if (fatalMessage == null) {
+  String? fatalMessage;
+  String? diagnostics;
+  ProviderContainer? container;
+
+  try {
+    // ---------- 1. 加载 Rust 核心（同步桥 + ABI 健康检查） ----------
+    stage.value = '正在加载核心组件…';
+    await rust.initRustBridge();
+    rust.pingCore();
+    debugPrint('[Main] Rust 核心已加载并通过健康检查');
+
+    // ---------- 2. 初始化应用（目录解析 + 日志系统；同步桥，毫秒级） ----------
+    stage.value = '正在初始化 FMCL 核心…';
+    final info = await rust
+        .initApp()
+        .timeout(const Duration(seconds: 60));
+    debugPrint(
+      '[Main] FMCL ${info.appVersion} | FMCL 根: ${info.fmclRoot} | '
+      '默认游戏目录: ${info.defaultGameDir}',
+    );
+
+    // ---------- 3. 启动 Provider 体系并载入设置 ----------
+    stage.value = '正在载入设置…';
+    container = ProviderContainer();
     try {
       await container
           .read(settingsProvider.notifier)
           .reload()
-          .timeout(const Duration(seconds: 20));
+          .timeout(const Duration(seconds: 60));
     } catch (e, s) {
       // 设置加载失败不致命：Notifier 已有默认值兜底，界面照常可用
       debugPrint('[Main] 设置加载失败（使用默认设置）: $e\n$s');
       _logToRustFile('WARN', 'Main', '设置加载失败（使用默认设置）: $e');
     }
-    // ---------- 记忆的窗口尺寸（PCL2 式恢复上次窗口大小，显示前完成避免闪烁） ----------
+
+    // ---------- 4. 记忆的窗口尺寸（PCL2 式恢复上次窗口大小） ----------
     if (!kIsWeb && Platform.isWindows) {
       try {
         final s = container.read(settingsProvider);
@@ -125,36 +150,60 @@ Future<void> main() async {
         }
       } catch (_) {}
     }
-  }
 
-  runApp(
-    UncontrolledProviderScope(
+    // ---------- 5. 切换到主界面 ----------
+    stage.value = '启动完成';
+    root.value = UncontrolledProviderScope(
       container: container,
-      child: fatalMessage != null
-          ? StartupErrorView(
-              title: 'FMCL 核心初始化失败',
-              message: fatalMessage,
-              hint: '全部核心逻辑位于 rust_lib_fmcl.dll，加载失败通常因为：\n'
-                  '· 杀毒软件（如 Windows Defender / 360）隔离了该 dll —— 请在'
-                  '隔离区恢复并添加信任；\n'
-                  '· 压缩包未完整解压或解压后移动了单独文件 —— 请完整解压后再运行；\n'
-                  '· 缺少 VC++ 运行库 —— 请安装 Microsoft Visual C++ Redistributable。'
-                  '\n\n详细日志位于启动器目录 FMCL\\logs\\latest.log。',
-            )
-          : const FmclApp(),
-    ),
-  );
-
-  // ---------- 内容就绪后再显示窗口 ----------
-  if (!kIsWeb && Platform.isWindows) {
+      child: const FmclApp(),
+    );
     try {
       await windowManager.setTitle('FMCL - Fluent Minecraft Launcher');
-      await windowManager.show();
-      await windowManager.focus();
-    } catch (e, s) {
-      debugPrint('[Main] 窗口显示异常: $e\n$s');
-    }
+    } catch (_) {}
+  } catch (e, s) {
+    fatalMessage = '$e';
+    debugPrint('[Main] 启动失败: $e\n$s');
+    _logToRustFile('ERROR', 'Main', '启动失败: $e');
+    // 自诊断：尽力采集本机环境信息（DLL 是否在位、大小、核心健康状态），
+    // 让错误页直接给出可执行的结论而不是泛泛的提示。
+    diagnostics = await _selfDiagnose();
+    root.value = StartupErrorView(
+      title: 'FMCL 核心初始化失败',
+      message: fatalMessage,
+      diagnostics: diagnostics,
+      hint: '全部核心逻辑位于 rust_lib_fmcl.dll，加载失败通常因为：\n'
+          '· 杀毒软件（如 Windows Defender / 360）隔离了该 dll —— 请在'
+          '隔离区恢复并添加信任；\n'
+          '· 压缩包未完整解压或解压后移动了单独文件 —— 请完整解压后再运行；\n'
+          '· 缺少 VC++ 运行库 —— 请安装 Microsoft Visual C++ Redistributable。'
+          '\n\n详细日志位于启动器目录 FMCL\\logs\\latest.log。',
+    );
   }
+}
+
+/// 启动失败时的本机自诊断（自身绝不抛错，采集多少算多少）。
+Future<String> _selfDiagnose() async {
+  final b = StringBuffer();
+  try {
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final dll = File('$exeDir\\rust_lib_fmcl.dll');
+    if (dll.existsSync()) {
+      final mb = dll.lengthSync() / 1024 / 1024;
+      b.writeln('rust_lib_fmcl.dll：存在（${mb.toStringAsFixed(1)} MB）');
+    } else {
+      b.writeln('rust_lib_fmcl.dll：不存在 —— 压缩包未完整解压或文件被杀毒'
+          '软件隔离，请完整解压并在杀毒软件中恢复/信任该文件');
+    }
+    try {
+      rust.pingCore();
+      b.writeln('核心健康检查（ping）：通过');
+    } catch (e) {
+      b.writeln('核心健康检查（ping）：$e');
+    }
+  } catch (e) {
+    b.writeln('诊断过程出错: $e');
+  }
+  return b.toString();
 }
 
 /// 启动期错误可见化页面（release 模式下替代默认的"隐形"ErrorWidget）。
@@ -163,6 +212,7 @@ class StartupErrorView extends StatelessWidget {
   final String message;
   final String? stack;
   final String? hint;
+  final String? diagnostics;
 
   const StartupErrorView({
     super.key,
@@ -170,6 +220,7 @@ class StartupErrorView extends StatelessWidget {
     required this.message,
     this.stack,
     this.hint,
+    this.diagnostics,
   });
 
   @override
@@ -179,6 +230,7 @@ class StartupErrorView extends StatelessWidget {
         ? ''
         : stack.split('\n').take(14).join('\n');
     final hint = this.hint;
+    final diagnostics = this.diagnostics;
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData.light(useMaterial3: true),
@@ -250,6 +302,26 @@ class StartupErrorView extends StatelessWidget {
                         fontSize: 12.5, height: 1.55, color: Color(0xFF6A737D)),
                   ),
                 ],
+                if (diagnostics != null && diagnostics.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF6F7F9),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFD0D7DE)),
+                    ),
+                    child: SelectableText(
+                      '—— 本机自诊断 ——\n$diagnostics',
+                      style: const TextStyle(
+                          fontSize: 11.5,
+                          height: 1.5,
+                          color: Color(0xFF3A3F45),
+                          fontFamily: 'monospace'),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -259,8 +331,75 @@ class StartupErrorView extends StatelessWidget {
   }
 }
 
-/// 日志目录（兼容入口）
-Future<String> logsDirectory() async {
-  final info = await rust.initApp();
-  return info.logsDir;
+/// 启动页（PCL2 风格）：窗口显示的第一眼就是它，替代任何形式的空白窗口。
+class _BootstrapApp extends StatelessWidget {
+  final ValueNotifier<String> stage;
+
+  const _BootstrapApp({required this.stage});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData.light(useMaterial3: true),
+      home: Container(
+        color: const Color(0xFFF3F5F8),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 草方块标识（与版本图标同源资产）
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.asset(
+                  'assets/img/hmcl/grass.png',
+                  width: 72,
+                  height: 72,
+                  filterQuality: FilterQuality.medium,
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'FMCL',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 3,
+                  color: Color(0xFF1F2328),
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Fluent Minecraft Launcher',
+                style: TextStyle(fontSize: 12, color: Color(0xFF6A737D)),
+              ),
+              const SizedBox(height: 26),
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.4,
+                  color: Color(0xFF3DA039),
+                ),
+              ),
+              const SizedBox(height: 14),
+              ValueListenableBuilder<String>(
+                valueListenable: stage,
+                builder: (_, text, __) => Text(
+                  text,
+                  style: const TextStyle(
+                      fontSize: 13, color: Color(0xFF3A3F45)),
+                ),
+              ),
+              const SizedBox(height: 40),
+              const Text(
+                '首次运行如被杀毒软件拦截，请添加信任',
+                style: TextStyle(fontSize: 11, color: Color(0xFF9AA4AF)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

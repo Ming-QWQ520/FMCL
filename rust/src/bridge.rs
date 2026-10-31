@@ -15,6 +15,9 @@
 //! 字符串与内存约定：payload 与回调 JSON 均为 UTF-8、`\0` 结尾；
 //! Rust 分配的返回字符串由 `fmcl_free` 释放（当前接口无同步返回字符串，
 //! 保留该导出以备将来扩展同步查询接口）。
+//!
+//! 同步通道：`fmcl_ping`（健康检查）与 `fmcl_call_sync`（启动关键路径的
+//! 同步调用，直接回写响应 JSON，不依赖事件回调管线）供 Dart 启动期使用。
 
 use once_cell::sync::Lazy;
 use serde_json::Value;
@@ -77,32 +80,54 @@ pub fn runtime() -> &'static tokio::runtime::Runtime {
 // C-ABI 导出
 // ---------------------------------------------------------------------------
 
+/// 同步健康检查（Dart 启动时调用）：返回魔法数 + ABI 版本，
+/// 用于校验 DLL 完整且与前端配套（防止旧版/半解压 DLL 造成诡异故障）。
+#[no_mangle]
+pub extern "C" fn fmcl_ping() -> i64 {
+    ((0x464D_434C_i64) << 32) | FMCL_ABI_VERSION as i64
+}
+
+/// 桥接 ABI 版本（与 Dart 侧 RustFfi.abiVersion 严格一致）
+pub const FMCL_ABI_VERSION: u32 = 1;
+
 /// 初始化运行时与全局转发（幂等）。返回 0 表示成功。
 #[no_mangle]
 pub extern "C" fn fmcl_init() -> i32 {
     Lazy::force(&RUNTIME);
+    crate::log_info!("Core", "tokio 运行时已就绪（fmcl_init）");
 
-    // 启动器日志广播 → 事件流（id 恒为 0；订阅一次，进程生命周期内有效）
+    // 启动器日志广播 → 事件流（id 恒为 0；订阅一次，进程生命周期内有效）。
+    // 注意：fmcl_init 时日志系统尚未初始化（init_app 才会初始化），
+    // 因此转发协程必须等待日志系统就绪后再订阅，绝不能此处直接
+    // subscribe()——那会得到 None 并永远不再尝试（历史 bug）。
     static LOG_FWD_STARTED: std::sync::Once = std::sync::Once::new();
     LOG_FWD_STARTED.call_once(|| {
-        if let Some(mut rx) = crate::core::logging::subscribe() {
-            RUNTIME.spawn(async move {
-                loop {
-                    match rx.recv().await {
-                        Ok(entry) => {
-                            let Ok(payload) = serde_json::to_string(&entry) else {
-                                continue;
-                            };
-                            emit_event(&format!(
-                                "{{\"type\":\"app_log\",\"event\":{payload}}}"
-                            ));
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(_) => break,
-                    }
+        RUNTIME.spawn(async move {
+            let mut rx = loop {
+                if let Some(rx) = crate::core::logging::subscribe() {
+                    break rx;
                 }
-            });
-        }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            };
+            crate::log_info!("Core", "日志转发协程已订阅（app_log → UI）");
+            loop {
+                match rx.recv().await {
+                    Ok(entry) => {
+                        let Ok(payload) = serde_json::to_string(&entry) else {
+                            continue;
+                        };
+                        emit_event(&format!(
+                            "{{\"type\":\"app_log\",\"event\":{payload}}}"
+                        ));
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        crate::log_warn!("Core", "日志转发落后 {n} 条，已跳过");
+                        continue;
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
     });
     0
 }
@@ -111,6 +136,7 @@ pub extern "C" fn fmcl_init() -> i32 {
 #[no_mangle]
 pub extern "C" fn fmcl_set_event_callback(cb: EventCallback) {
     *EVENT_CB.lock().unwrap() = Some(cb);
+    crate::log_info!("Core", "事件回调已注册");
 }
 
 /// 异步调用一个方法。立即返回调用 id；结果与过程事件经回调回传。
@@ -132,6 +158,7 @@ pub unsafe extern "C" fn fmcl_call(method: *const c_char, payload: *const c_char
     };
 
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    crate::log_info!("Core", "收到调用 id={id} method={method}");
     RUNTIME.spawn(async move {
         // 内层 spawn + JoinError 兜底：即使 handler panic（任务中止），
         // 也保证向 Dart 回传 ok:false，绝不让调用方永久挂起。
@@ -142,6 +169,7 @@ pub unsafe extern "C" fn fmcl_call(method: *const c_char, payload: *const c_char
         .unwrap_or_else(|join_err| {
             Err(anyhow::anyhow!("内部任务异常（已捕获）: {join_err}"))
         });
+        let ok = matches!(result, Ok(_));
         let response = match result {
             Ok(value) => {
                 let v = serde_json::to_string(&value).unwrap_or_else(|_| "null".into());
@@ -153,9 +181,80 @@ pub unsafe extern "C" fn fmcl_call(method: *const c_char, payload: *const c_char
                 format!("{{\"type\":\"response\",\"id\":{id},\"ok\":false,\"error\":{msg}}}")
             }
         };
+        crate::log_info!("Core", "响应已回传 id={id} ok={ok}");
         emit_event(&response);
     });
     id
+}
+
+/// 同步调用（启动关键路径专用）：在调用线程上直接执行并回写响应 JSON，
+/// 不依赖事件回调管线（即便回调失效也能完成初始化）。
+///
+/// 返回值：0 = 成功且已写入 out_buf；>0 = 所需缓冲区字节数（out_buf 不足，
+/// 未写入，Dart 应按该大小重试一次）；<0 = 内部错误。
+///
+/// # Safety
+/// - `method`/`payload` 必须为合法的以 \0 结尾的 UTF-8 C 字符串（可为 null）。
+/// - `out_buf`/`cap` 必须指向调用方分配的可写缓冲区（cap 为字节数，含 \0 空间）。
+#[no_mangle]
+pub unsafe extern "C" fn fmcl_call_sync(
+    method: *const c_char,
+    payload: *const c_char,
+    out_buf: *mut c_char,
+    cap: usize,
+) -> i64 {
+    let method = if method.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(method).to_string_lossy().into_owned()
+    };
+    let payload = if payload.is_null() {
+        Value::Null
+    } else {
+        let raw = CStr::from_ptr(payload).to_string_lossy();
+        serde_json::from_str::<Value>(&raw).unwrap_or(Value::Null)
+    };
+
+    crate::log_info!("Core", "同步调用 method={method}");
+    let started = std::time::Instant::now();
+    // 内层 spawn + JoinError 兜底：即使 handler panic（任务中止）也不会
+    // 跨 FFI 边界展开导致整个进程崩溃，而是回传 ok:false。
+    let result = RUNTIME.block_on(async {
+        tokio::task::spawn(async move {
+            crate::dispatch::dispatch(&method, payload, Emitter { call_id: 0 }).await
+        })
+        .await
+        .unwrap_or_else(|join_err| Err(anyhow::anyhow!("内部任务异常（已捕获）: {join_err}")))
+    });
+
+    let response = match &result {
+        Ok(value) => {
+            let v = serde_json::to_string(value).unwrap_or_else(|_| "null".into());
+            format!("{{\"type\":\"response\",\"id\":0,\"ok\":true,\"value\":{v}}}")
+        }
+        Err(e) => {
+            let msg = serde_json::to_string(&e.to_string())
+                .unwrap_or_else(|_| "\"执行失败\"".into());
+            format!("{{\"type\":\"response\",\"id\":0,\"ok\":false,\"error\":{msg}}}")
+        }
+    };
+    let ok = matches!(result, Ok(_));
+    crate::log_info!(
+        "Core",
+        "同步调用完成 method={} ok={} 耗时={:?}",
+        method,
+        ok,
+        started.elapsed()
+    );
+
+    let bytes = response.as_bytes();
+    let needed = bytes.len() + 1;
+    if out_buf.is_null() || cap < needed {
+        return needed as i64;
+    }
+    std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf.cast::<u8>(), bytes.len());
+    *out_buf.add(bytes.len()) = 0;
+    0
 }
 
 /// 预留：释放 Rust 侧分配的 C 字符串
