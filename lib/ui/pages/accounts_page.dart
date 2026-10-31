@@ -473,7 +473,9 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
       }
       // 对齐 PCL：添加外置账户后立即准备外置登录组件
       // （authlib-injector.jar 自动下载至 exe\FMCL\lib\authlib-injector）
-      await _prepareAuthlibInjector(context);
+      if (context.mounted) {
+        await _prepareAuthlibInjector(context);
+      }
     } catch (e) {
       if (context.mounted) {
         Navigator.of(context).pop(); // 关闭 loading
@@ -488,6 +490,8 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
   /// 成功/失败均给出可见反馈；失败不阻断账户使用（启动游戏时会自动重试）。
   Future<void> _prepareAuthlibInjector(BuildContext context) async {
     if (!context.mounted) return;
+    // 预先捕获 NavigatorState：即便页面在下载期间被销毁也能关闭提示框
+    final nav = Navigator.of(context);
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -516,8 +520,8 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
     } catch (e) {
       error = '$e';
     }
+    nav.pop(); // 关闭下载提示
     if (!context.mounted) return;
-    Navigator.of(context).pop(); // 关闭下载提示
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
